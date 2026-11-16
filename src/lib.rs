@@ -1,6 +1,7 @@
 pub(crate) mod algorithm;
 pub mod diff;
 pub mod edit;
+pub(crate) mod optimize;
 pub mod views;
 
 pub use diff::Diff;
@@ -13,9 +14,27 @@ pub fn diff_slices_by<'a, T, F>(a: &'a [T], b: &'a [T], mut equals: F) -> Diff<'
 where
     F: FnMut(&T, &T) -> bool,
 {
-    let script = algorithm::myers::myers(a.len(), b.len(), |i, j| equals(&a[i], &b[j]));
+    let trimmed = optimize::trim::trim_slices(a, b, &mut equals);
 
-    Diff::from_parts(script, a, b)
+    if trimmed.slice_a.is_empty() && trimmed.slice_b.is_empty() {
+        return Diff::from_parts(EditScript::default(), a, b);
+    }
+
+    let script = algorithm::myers::myers(trimmed.slice_a.len(), trimmed.slice_b.len(), |i, j| {
+        equals(&trimmed.slice_a[i], &trimmed.slice_b[j])
+    });
+
+    let mut shifted_hunks = Vec::new();
+    for hunk in script.into_iter() {
+        let old_r = hunk.old_range();
+        let new_r = hunk.new_range();
+        shifted_hunks.push(Hunk::new(
+            old_r.start + trimmed.prefix_len..old_r.end + trimmed.prefix_len,
+            new_r.start + trimmed.prefix_len..new_r.end + trimmed.prefix_len,
+        ));
+    }
+
+    Diff::from_parts(EditScript::new(shifted_hunks), a, b)
 }
 
 /// Computes the diff between two slices of elements implementing `PartialEq`.
@@ -29,9 +48,33 @@ pub type LineDiff<'a> = Diff<'a, &'a str>;
 /// Convenience type alias for raw byte-line diffs (for non-UTF8 binary files).
 pub type ByteLineDiff<'a> = Diff<'a, &'a [u8]>;
 
-/// Splits text into lines and computes a diff.
+/// Splits text into lines and computes a diff using collision-free token interning.
 pub fn diff_lines<'a>(old: &'a [&'a str], new: &'a [&'a str]) -> LineDiff<'a> {
-    diff_slices(old, new)
+    let trimmed = optimize::trim::trim_slices(old, new, |x, y| x == y);
+
+    if trimmed.slice_a.is_empty() && trimmed.slice_b.is_empty() {
+        return Diff::from_parts(EditScript::default(), old, new);
+    }
+
+    let mut interner = optimize::intern::TokenInterner::new();
+    let old_tokens = interner.intern(trimmed.slice_a);
+    let new_tokens = interner.intern(trimmed.slice_b);
+
+    let script = algorithm::myers::myers(old_tokens.len(), new_tokens.len(), |i, j| {
+        old_tokens[i] == new_tokens[j]
+    });
+
+    let mut shifted_hunks = Vec::new();
+    for hunk in script.into_iter() {
+        let old_r = hunk.old_range();
+        let new_r = hunk.new_range();
+        shifted_hunks.push(Hunk::new(
+            old_r.start + trimmed.prefix_len..old_r.end + trimmed.prefix_len,
+            new_r.start + trimmed.prefix_len..new_r.end + trimmed.prefix_len,
+        ));
+    }
+
+    Diff::from_parts(EditScript::new(shifted_hunks), old, new)
 }
 
 #[cfg(test)]
