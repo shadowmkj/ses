@@ -9,7 +9,7 @@ fn main() {
     println!("--- Item-by-item changes (Change) ---");
     for change in diff.iter_changes() {
         match change {
-            Change::Equal(item) => println!("  {item}"),
+            Change::Equal(old, _new) => println!("  {old}"),
             Change::Delete(item) => println!("- {item}"),
             Change::Insert(item) => println!("+ {item}"),
         }

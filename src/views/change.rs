@@ -21,7 +21,7 @@ use crate::edit::EditScript;
 ///
 /// for change in diff.iter_changes() {
 ///     match change {
-///         Change::Equal(item) => println!("  {item}"),
+///         Change::Equal(old, _new) => println!("  {old}"),
 ///         Change::Delete(item) => println!("- {item}"),
 ///         Change::Insert(item) => println!("+ {item}"),
 ///     }
@@ -30,7 +30,7 @@ use crate::edit::EditScript;
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change<'a, T> {
     /// The element is present and unchanged in both sequences.
-    Equal(&'a T),
+    Equal(&'a T, &'a T),
 
     /// The element was present in the original sequence and was deleted.
     Delete(&'a T),
@@ -87,10 +87,11 @@ impl<'s, 'a, T> Iterator for ChangesIter<'s, 'a, T> {
 
                 // Unchanged items before the current hunk
                 if self.old_idx < old_r.start {
-                    let item = &self.old[self.old_idx];
+                    let old_item = &self.old[self.old_idx];
+                    let new_item = &self.new[self.new_idx];
                     self.old_idx += 1;
                     self.new_idx += 1;
-                    return Some(Change::Equal(item));
+                    return Some(Change::Equal(old_item, new_item));
                 }
 
                 // Deletions in current hunk
@@ -117,10 +118,11 @@ impl<'s, 'a, T> Iterator for ChangesIter<'s, 'a, T> {
 
             // Trailing unchanged items after the last hunk
             if self.old_idx < self.old.len() {
-                let item = &self.old[self.old_idx];
+                let old_item = &self.old[self.old_idx];
+                let new_item = &self.new[self.new_idx];
                 self.old_idx += 1;
                 self.new_idx += 1;
-                return Some(Change::Equal(item));
+                return Some(Change::Equal(old_item, new_item));
             }
 
             return None;
@@ -143,9 +145,25 @@ mod tests {
         assert_eq!(
             changes,
             vec![
-                Change::Equal(&"a"),
+                Change::Equal(&"a", &"a"),
                 Change::Delete(&"b"),
                 Change::Insert(&"c"),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_iter_changes_custom_equality_preserves_both() {
+        let a = ["HELLO", "world"];
+        let b = ["hello", "WORLD"];
+        let diff = crate::diff_slices_by(&a, &b, |x, y| x.eq_ignore_ascii_case(y));
+
+        let changes: Vec<_> = diff.iter_changes().collect();
+        assert_eq!(
+            changes,
+            vec![
+                Change::Equal(&"HELLO", &"hello"),
+                Change::Equal(&"world", &"WORLD"),
             ]
         );
     }
