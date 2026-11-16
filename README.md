@@ -185,9 +185,17 @@ Runnable examples are provided in the [`examples/`](examples) directory:
   ```bash
   cargo run --example basic
   ```
-- **`unified`**: Demonstrates building a custom unified diff formatter with context lines from `ses::Diff`:
+- **`files`**: Demonstrates zero-copy raw byte line diffing over files:
+  ```bash
+  cargo run --example files
+  ```
+- **`unified`**: Demonstrates building a custom unified diff formatter (`diff -u`) with context lines from `ses::Diff`:
   ```bash
   cargo run --example unified -- file_a.txt file_b.txt
+  ```
+- **`sdiff`**: Demonstrates side-by-side diffing (`sdiff` / `diff -y`) with column alignment and suppression options:
+  ```bash
+  cargo run --example sdiff -- file_a.txt file_b.txt
   ```
 
 ---
