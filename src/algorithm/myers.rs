@@ -221,7 +221,7 @@ where
     for d in 1..=d_max {
         let d_isize = d as isize;
 
-        for k in (-d_isize..=d_isize).step_by(2) {
+        for k in (-d_isize..=d_isize).rev().step_by(2) {
             if k < min_k || k > max_k {
                 continue;
             }
@@ -236,6 +236,8 @@ where
                 vf[k_idx - 1] + 1
             };
             let y_isize = x as isize - k;
+            let x0 = x;
+            let y0 = if y_isize >= 0 { y_isize as usize } else { 0 };
 
             if y_isize >= 0 {
                 let mut y = y_isize as usize;
@@ -252,19 +254,17 @@ where
                 && k <= delta + (d_isize - 1)
                 && vf[k_idx] >= vb[k_idx]
             {
-                let u_start = vb[k_idx];
-                let v_start = (u_start as isize - k).max(0) as usize;
-                let y_end = (x as isize - k).max(0) as usize;
+                let y = (x as isize - k).max(0) as usize;
                 return Some(Snake {
-                    x: u_start,
-                    y: v_start,
+                    x: x0,
+                    y: y0,
                     u: x,
-                    v: y_end,
+                    v: y,
                 });
             }
         }
 
-        for k in ((delta - d_isize)..=(delta + d_isize)).step_by(2) {
+        for k in ((delta - d_isize)..=(delta + d_isize)).rev().step_by(2) {
             if k < min_k || k > max_k {
                 continue;
             }
@@ -282,6 +282,8 @@ where
             };
 
             let v_isize = u as isize - k;
+            let u0 = u;
+            let v0 = if v_isize >= 0 { v_isize as usize } else { 0 };
 
             if v_isize >= 0 {
                 let mut v = v_isize as usize;
@@ -294,14 +296,12 @@ where
 
             // If delta is even, check if backward search overlaps forward search
             if !odd && k >= -d_isize && k <= d_isize && vf[k_idx] >= vb[k_idx] {
-                let x_end = vf[k_idx];
-                let y_end = (x_end as isize - k).max(0) as usize;
-                let v_start = (u as isize - k).max(0) as usize;
+                let v = (u as isize - k).max(0) as usize;
                 return Some(Snake {
                     x: u,
-                    y: v_start,
-                    u: x_end,
-                    v: y_end,
+                    y: v,
+                    u: u0,
+                    v: v0,
                 });
             }
         }
@@ -417,5 +417,38 @@ mod tests {
         assert_eq!(hunks[0].new_range(), 1..2);
         assert_eq!(hunks[1].old_range(), 5..7);
         assert_eq!(hunks[1].new_range(), 4..4);
+    }
+
+    #[test]
+    fn test_myers_paper_1986() {
+        // The example in Eugene W Myers paper
+        let a = ["C", "B", "A", "B", "A", "C"];
+        let b = ["A", "B", "C", "A", "B", "B", "A"];
+        let script = myers(a.len(), b.len(), |i, j| a[i] == b[j]);
+        // Optimal D = 5: matches B, A, B, A (length 4)
+        assert_eq!(script.len(), 4);
+        assert_eq!(script.hunks()[0].old_range(), 0..1); // Delete C
+        assert_eq!(script.hunks()[0].new_range(), 0..1); // Replace with A
+        assert_eq!(script.hunks()[1].old_range(), 2..2); // Insert C
+        assert_eq!(script.hunks()[1].new_range(), 2..3);
+        assert_eq!(script.hunks()[2].old_range(), 4..4); // Insert B
+        assert_eq!(script.hunks()[2].new_range(), 5..6);
+        assert_eq!(script.hunks()[3].old_range(), 5..6); // Delete C
+        assert_eq!(script.hunks()[3].new_range(), 7..7);
+    }
+
+    #[test]
+    fn test_myers_gnu_diff_alignment_fruits() {
+        let a = ["banana", "mango", "carrot", "grapes", "apple"];
+        let b = ["apple", "banana", "mango", "grapes", "carrot"];
+        let script = myers(a.len(), b.len(), |i, j| a[i] == b[j]);
+        // Matches banana, mango, grapes (LCS length 3, D = 4)
+        assert_eq!(script.len(), 3);
+        assert_eq!(script.hunks()[0].old_range(), 0..0); // Insert apple
+        assert_eq!(script.hunks()[0].new_range(), 0..1);
+        assert_eq!(script.hunks()[1].old_range(), 2..3); // Delete carrot
+        assert_eq!(script.hunks()[1].new_range(), 3..3);
+        assert_eq!(script.hunks()[2].old_range(), 4..5); // Replace apple with carrot
+        assert_eq!(script.hunks()[2].new_range(), 4..5);
     }
 }
