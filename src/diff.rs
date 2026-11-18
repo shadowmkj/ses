@@ -1,4 +1,4 @@
-use crate::edit::EditScript;
+use crate::edit::{EditScript, Hunk};
 
 /// The universal container pairing an `EditScript` with original borrowed inputs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,5 +47,45 @@ impl<'a, T> Diff<'a, T> {
     /// Iterates lazily over contiguous chunk slices (Equal, Delete, Insert).
     pub fn iter_chunks<'s>(&'s self) -> crate::views::chunk::ChunksIter<'s, 'a, T> {
         crate::views::chunk::ChunksIter::new(&self.script, self.old, self.new)
+    }
+}
+
+impl<'s, 'a, T> IntoIterator for &'s Diff<'a, T> {
+    type Item = &'s Hunk;
+    type IntoIter = std::slice::Iter<'s, Hunk>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.script.hunks().iter()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_diff_into_iterator() {
+        let old = [1, 2, 3];
+        let new = [1, 9, 3];
+        let hunk = Hunk::new(1..2, 1..2);
+        let script = EditScript::new(vec![hunk.clone()]);
+        let diff = Diff::from_parts(script, &old, &new);
+
+        // Test iterating over diff.script()
+        let mut count = 0;
+        for h in diff.script() {
+            assert_eq!(h, &hunk);
+            count += 1;
+        }
+        assert_eq!(count, 1);
+
+        // Test iterating over &diff
+        let mut count2 = 0;
+        for h in &diff {
+            assert_eq!(h, &hunk);
+            count2 += 1;
+        }
+        assert_eq!(count2, 1);
     }
 }
