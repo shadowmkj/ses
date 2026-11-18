@@ -24,17 +24,24 @@ where
         equals(&trimmed.slice_a[i], &trimmed.slice_b[j])
     });
 
-    let mut shifted_hunks = Vec::new();
-    for hunk in script.into_iter() {
+    let shifted = algorithm::shift::shift_boundaries(
+        trimmed.slice_a,
+        trimmed.slice_b,
+        script.hunks(),
+        &mut equals,
+    );
+
+    let mut final_hunks = Vec::with_capacity(shifted.len());
+    for hunk in shifted.into_iter() {
         let old_r = hunk.old_range();
         let new_r = hunk.new_range();
-        shifted_hunks.push(Hunk::new(
+        final_hunks.push(Hunk::new(
             old_r.start + trimmed.prefix_len..old_r.end + trimmed.prefix_len,
             new_r.start + trimmed.prefix_len..new_r.end + trimmed.prefix_len,
         ));
     }
 
-    Diff::from_parts(EditScript::new(shifted_hunks), a, b)
+    Diff::from_parts(EditScript::new(final_hunks), a, b)
 }
 
 /// Computes the diff between two slices of elements implementing `PartialEq`.
