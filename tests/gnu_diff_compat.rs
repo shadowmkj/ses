@@ -68,7 +68,14 @@ fn assert_matches_gnu_diff(a: &[&str], b: &[&str]) {
         .collect();
 
     // Check if GNU diff is installed
-    let gnu_diff_paths = ["/opt/homebrew/opt/diffutils/bin/diff", "gdiff", "diff"];
+    let gnu_diff_paths = [
+        "/opt/homebrew/opt/diffutils/bin/diff",
+        "/opt/homebrew/bin/gdiff",
+        "/usr/local/opt/diffutils/bin/diff",
+        "/usr/local/bin/gdiff",
+        "gdiff",
+        "diff",
+    ];
     let mut gnu_bin = None;
     for path in gnu_diff_paths {
         if let Ok(output) = Command::new(path).arg("--version").output() {

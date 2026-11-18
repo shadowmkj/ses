@@ -46,6 +46,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y diffutils
 
+      - name: Install GNU diffutils (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install diffutils
+          echo "$(brew --prefix diffutils)/libexec/gnubin" >> $GITHUB_PATH
+
       - name: Run unit and integration tests
         run: cargo test --all-targets --verbose
 
@@ -58,6 +64,7 @@ jobs:
           cargo run --example files
           cargo run --example unified
           cargo run --example sdiff
+          cargo run --example hunks
 
   lint:
     name: Lint & Format
