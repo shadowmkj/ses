@@ -39,6 +39,24 @@ impl<'a, T> Diff<'a, T> {
         self.new
     }
 
+    /// Borrows the slice of computed edit hunks.
+    #[inline]
+    pub fn hunks(&self) -> &[Hunk] {
+        self.script.hunks()
+    }
+
+    /// Returns `true` if the diff contains no changes (both sequences are identical).
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.script.is_empty()
+    }
+
+    /// Returns the number of edit hunks.
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.script.len()
+    }
+
     /// Iterates lazily over individual token changes (Equal, Delete, Insert).
     pub fn iter_changes<'s>(&'s self) -> crate::views::change::ChangesIter<'s, 'a, T> {
         crate::views::change::ChangesIter::new(&self.script, self.old, self.new)
@@ -56,13 +74,31 @@ impl<'s, 'a, T> IntoIterator for &'s Diff<'a, T> {
 
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
-        self.script.hunks().iter()
+        self.hunks().iter()
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_diff_forwarding_methods() {
+        let old = [1, 2, 3];
+        let new = [1, 9, 3];
+        let empty_diff = Diff::from_parts(EditScript::default(), &old, &old);
+        assert!(empty_diff.is_empty());
+        assert_eq!(empty_diff.len(), 0);
+        assert_eq!(empty_diff.hunks(), &[]);
+
+        let hunk = Hunk::new(1..2, 1..2);
+        let script = EditScript::new(vec![hunk.clone()]);
+        let diff = Diff::from_parts(script, &old, &new);
+
+        assert!(!diff.is_empty());
+        assert_eq!(diff.len(), 1);
+        assert_eq!(diff.hunks(), &[hunk]);
+    }
 
     #[test]
     fn test_diff_into_iterator() {
