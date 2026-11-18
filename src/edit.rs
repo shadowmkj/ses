@@ -96,6 +96,16 @@ impl IntoIterator for EditScript {
     }
 }
 
+impl<'a> IntoIterator for &'a EditScript {
+    type Item = &'a Hunk;
+    type IntoIter = std::slice::Iter<'a, Hunk>;
+
+    #[inline]
+    fn into_iter(self) -> Self::IntoIter {
+        self.hunks.iter()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -130,8 +140,13 @@ mod tests {
         assert_eq!(script.len(), 1);
         assert_eq!(script.hunks()[0], hunk);
 
-        // Test IntoIterator
+        // Test IntoIterator by reference and by value
+        let ref_collected: Vec<_> = (&script).into_iter().collect();
+        assert_eq!(ref_collected.len(), 1);
+        assert_eq!(ref_collected[0], &hunk);
+
         let collected: Vec<_> = script.into_iter().collect();
         assert_eq!(collected.len(), 1);
+        assert_eq!(collected[0], hunk);
     }
 }

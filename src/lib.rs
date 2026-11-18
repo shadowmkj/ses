@@ -71,17 +71,20 @@ pub fn diff_lines<'a>(old: &'a [&'a str], new: &'a [&'a str]) -> LineDiff<'a> {
         old_tokens[i] == new_tokens[j]
     });
 
-    let mut shifted_hunks = Vec::new();
-    for hunk in script.into_iter() {
+    let shifted =
+        algorithm::shift::shift_boundaries(&old_tokens, &new_tokens, script.hunks(), |x, y| x == y);
+
+    let mut final_hunks = Vec::with_capacity(shifted.len());
+    for hunk in shifted.into_iter() {
         let old_r = hunk.old_range();
         let new_r = hunk.new_range();
-        shifted_hunks.push(Hunk::new(
+        final_hunks.push(Hunk::new(
             old_r.start + trimmed.prefix_len..old_r.end + trimmed.prefix_len,
             new_r.start + trimmed.prefix_len..new_r.end + trimmed.prefix_len,
         ));
     }
 
-    Diff::from_parts(EditScript::new(shifted_hunks), old, new)
+    Diff::from_parts(EditScript::new(final_hunks), old, new)
 }
 
 #[cfg(test)]
@@ -115,5 +118,18 @@ mod tests {
         assert_eq!(diff.script().len(), 1);
         assert_eq!(diff.old(), &old);
         assert_eq!(diff.new(), &new);
+    }
+
+    #[test]
+    fn test_diff_lines_boundary_shifting() {
+        let old = ["x", "a", "a", "a", "y"];
+        let new = ["x", "a", "a", "y"];
+        let diff_l = diff_lines(&old, &new);
+        let diff_s = diff_slices(&old, &new);
+
+        // diff_lines and diff_slices must produce identical shifted hunk boundaries
+        assert_eq!(diff_l.hunks(), diff_s.hunks());
+        assert_eq!(diff_l.hunks().len(), 1);
+        assert_eq!(diff_l.hunks()[0].old_range(), 3..4);
     }
 }

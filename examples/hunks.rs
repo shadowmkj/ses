@@ -19,7 +19,7 @@ fn main() -> io::Result<()> {
     let b_lines: Vec<&str> = b_content.lines().collect();
 
     let diff = ses::diff_slices(&a_lines, &b_lines);
-    for hunk in diff.script().hunks() {
+    for hunk in diff.hunks() {
         let old_r = hunk.old_range();
         let new_r = hunk.new_range();
         println!(
