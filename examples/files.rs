@@ -1,9 +1,25 @@
 use ses::{Change, DiffChunk};
+use std::env;
 use std::fs;
 
 fn main() {
-    let old_bytes = fs::read("a.txt").unwrap();
-    let new_bytes = fs::read("b.txt").unwrap();
+    let args: Vec<String> = env::args().collect();
+    let (old_bytes, new_bytes) = if args.len() >= 3 {
+        let old = fs::read(&args[1]).unwrap_or_else(|err| {
+            eprintln!("Error reading '{}': {}", args[1], err);
+            std::process::exit(1);
+        });
+        let new = fs::read(&args[2]).unwrap_or_else(|err| {
+            eprintln!("Error reading '{}': {}", args[2], err);
+            std::process::exit(1);
+        });
+        (old, new)
+    } else {
+        (
+            b"banana\nmango\ncarrot\ngrapes\napple\n".to_vec(),
+            b"apple\nbanana\nmango\ngrapes\ncarrot\n".to_vec(),
+        )
+    };
 
     // Split on newline while preserving the newline byte (exactly how diffutils does it)
     let old: Vec<&[u8]> = old_bytes.split_inclusive(|&b| b == b'\n').collect();

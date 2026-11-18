@@ -68,7 +68,14 @@ fn assert_matches_gnu_diff(a: &[&str], b: &[&str]) {
         .collect();
 
     // Check if GNU diff is installed
-    let gnu_diff_paths = ["/opt/homebrew/opt/diffutils/bin/diff", "gdiff", "diff"];
+    let gnu_diff_paths = [
+        "/opt/homebrew/opt/diffutils/bin/diff",
+        "/opt/homebrew/bin/gdiff",
+        "/usr/local/opt/diffutils/bin/diff",
+        "/usr/local/bin/gdiff",
+        "gdiff",
+        "diff",
+    ];
     let mut gnu_bin = None;
     for path in gnu_diff_paths {
         if let Ok(output) = Command::new(path).arg("--version").output() {
@@ -91,6 +98,8 @@ fn assert_matches_gnu_diff(a: &[&str], b: &[&str]) {
         for line in b {
             writeln!(file_b.1, "{}", line).unwrap();
         }
+        drop(file_a.1);
+        drop(file_b.1);
 
         let output = Command::new(bin)
             .arg("-d")
@@ -119,9 +128,11 @@ static COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 fn tempfile_named(prefix: &str) -> (String, std::fs::File) {
     let count = COUNTER.fetch_add(1, Ordering::SeqCst);
-    let path = format!("/tmp/{}_{}_{}.txt", prefix, std::process::id(), count);
-    let f = std::fs::File::create(&path).unwrap();
-    (path, f)
+    let path =
+        std::env::temp_dir().join(format!("{}_{}_{}.txt", prefix, std::process::id(), count));
+    let path_str = path.to_string_lossy().into_owned();
+    let f = std::fs::File::create(&path_str).unwrap();
+    (path_str, f)
 }
 
 #[test]
