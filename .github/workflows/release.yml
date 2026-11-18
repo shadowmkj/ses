@@ -57,48 +57,53 @@ jobs:
       - name: Build release
         run: cargo build --release --all-targets
 
-      - name: Generate Changelog with git-cliff
-        uses: orhun/git-cliff-action@v4
-        id: git-cliff
-        with:
-          config: cliff.toml
-          args: --verbose --tag ${{ steps.tag.outputs.tag }} --unreleased --strip header
-        env:
-          OUTPUT: RELEASE_NOTES.md
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Ensure release notes exist
+      - name: Extract Release Notes from CHANGELOG.md
+        id: notes
         run: |
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "RELEASE_NOTES.md is empty, attempting extraction from CHANGELOG.md..."
-            python3 - << 'PYEOF'
+          python3 - << 'EOF'
           import sys
-          tag = "${{ steps.tag.outputs.tag }}"
-          try:
-              with open("CHANGELOG.md") as f:
-                  lines = f.readlines()
-              found = False
-              section = []
-              for line in lines:
-                  if line.startswith(f"## [{tag}]") or (tag == "unreleased" and line.startswith("## [unreleased]")):
+
+          tag = "${{ steps.tag.outputs.tag }}".strip()
+          tag_no_v = tag.lstrip("v")
+          targets = [f"## [{tag}]", f"## [{tag_no_v}]"]
+
+          with open("CHANGELOG.md", "r", encoding="utf-8") as f:
+              lines = f.readlines()
+
+          found = False
+          section = []
+          for line in lines:
+              if not found:
+                  if any(line.startswith(p) for p in targets):
                       found = True
                       section.append(line)
-                      continue
-                  if found:
+              else:
+                  if line.startswith("## ["):
+                      break
+                  section.append(line)
+
+          # Fallback: check unreleased section if the tag was not found directly
+          if not found:
+              for line in lines:
+                  if not found:
+                      if line.startswith("## [unreleased]"):
+                          found = True
+                          section.append(f"## [{tag}]\n")
+                  else:
                       if line.startswith("## ["):
                           break
                       section.append(line)
-              if section:
-                  with open("RELEASE_NOTES.md", "w") as f:
-                      f.writelines(section)
-          except Exception as e:
-              print("Fallback extraction error:", e)
-          PYEOF
-          fi
-          if [ ! -s RELEASE_NOTES.md ]; then
-            echo "## ${{ steps.tag.outputs.tag }}" > RELEASE_NOTES.md
-            echo "Release ${{ steps.tag.outputs.tag }}" >> RELEASE_NOTES.md
-          fi
+
+          if not section:
+              section = [f"## {tag}\n", f"Release {tag}\n"]
+
+          content = "".join(section).strip()
+          with open("RELEASE_NOTES.md", "w", encoding="utf-8") as f:
+              f.write(content + "\n")
+
+          print(f"Extracted {len(section)} lines for {tag}")
+          EOF
+
           echo "--- Release Notes ---"
           cat RELEASE_NOTES.md
 
