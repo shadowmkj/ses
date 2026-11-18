@@ -1,0 +1,114 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v0.0.3). Leave empty to use version from Cargo.toml'
+        required: false
+        type: string
+        default: ''
+      draft:
+        description: 'Create as a draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Create as a prerelease'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  release:
+    name: Build & Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine tag name
+        id: tag
+        run: |
+          if [ -n "${{ inputs.tag_name }}" ]; then
+            TAG="${{ inputs.tag_name }}"
+          else
+            VERSION=$(grep '^version' Cargo.toml | head -n1 | cut -d '"' -f2)
+            TAG="v$VERSION"
+          fi
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+
+      - name: Set up Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo dependencies and build outputs
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release
+        run: cargo build --release --all-targets
+
+      - name: Generate Changelog with git-cliff
+        uses: orhun/git-cliff-action@v4
+        id: git-cliff
+        with:
+          config: cliff.toml
+          args: --verbose --tag ${{ steps.tag.outputs.tag }} --unreleased --strip header
+        env:
+          OUTPUT: RELEASE_NOTES.md
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Ensure release notes exist
+        run: |
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "RELEASE_NOTES.md is empty, attempting extraction from CHANGELOG.md..."
+            python3 - << 'PYEOF'
+          import sys
+          tag = "${{ steps.tag.outputs.tag }}"
+          try:
+              with open("CHANGELOG.md") as f:
+                  lines = f.readlines()
+              found = False
+              section = []
+              for line in lines:
+                  if line.startswith(f"## [{tag}]") or (tag == "unreleased" and line.startswith("## [unreleased]")):
+                      found = True
+                      section.append(line)
+                      continue
+                  if found:
+                      if line.startswith("## ["):
+                          break
+                      section.append(line)
+              if section:
+                  with open("RELEASE_NOTES.md", "w") as f:
+                      f.writelines(section)
+          except Exception as e:
+              print("Fallback extraction error:", e)
+          PYEOF
+          fi
+          if [ ! -s RELEASE_NOTES.md ]; then
+            echo "## ${{ steps.tag.outputs.tag }}" > RELEASE_NOTES.md
+            echo "Release ${{ steps.tag.outputs.tag }}" >> RELEASE_NOTES.md
+          fi
+          echo "--- Release Notes ---"
+          cat RELEASE_NOTES.md
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          body_path: RELEASE_NOTES.md
+          draft: ${{ inputs.draft }}
+          prerelease: ${{ inputs.prerelease }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
