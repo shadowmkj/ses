@@ -58,7 +58,6 @@ jobs:
           cargo run --example files
           cargo run --example unified
           cargo run --example sdiff
-          cargo run --example hunks
 
   lint:
     name: Lint & Format
