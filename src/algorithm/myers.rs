@@ -1,92 +1,293 @@
 use crate::edit::{EditScript, Hunk};
+use std::ops::{Index, IndexMut, Range};
 
-/// Reusable workspace allocating forward and backward diagonal buffers to ensure
-/// a single allocation for the entirety of the algorithm
-pub(crate) struct Workspace {
+/// A storage buffer for diagonal endpoints, allowing natural mathematical
+/// indexing with signed diagonal indices `k` in `[-max, max]`.
+pub(crate) struct DiagonalBuffer {
+    offset: isize,
     buffer: Vec<usize>,
-    max: usize,
+}
+
+impl DiagonalBuffer {
+    /// Constructs a new `DiagonalBuffer` sized to store diagonals from `-max` to `+max` inclusive.
+    pub fn new(max: usize) -> Self {
+        Self {
+            offset: max as isize,
+            buffer: vec![0; 2 * max + 1],
+        }
+    }
+}
+
+impl Index<isize> for DiagonalBuffer {
+    type Output = usize;
+
+    #[inline]
+    fn index(&self, k: isize) -> &Self::Output {
+        &self.buffer[(k + self.offset) as usize]
+    }
+}
+
+impl IndexMut<isize> for DiagonalBuffer {
+    #[inline]
+    fn index_mut(&mut self, k: isize) -> &mut Self::Output {
+        &mut self.buffer[(k + self.offset) as usize]
+    }
+}
+
+/// Preallocated workspace holding forward (`vf`) and backward (`vb`) diagonal buffers,
+/// allocated once at the start of the algorithm to avoid allocations in the diffing loop.
+pub(crate) struct Workspace {
+    pub vf: DiagonalBuffer,
+    pub vb: DiagonalBuffer,
 }
 
 impl Workspace {
+    /// Allocates forward and backward diagonal buffers for sequences of combined length `max`.
     pub fn new(max: usize) -> Self {
-        // Number of diagonal slots from -max to +max inclusive:
-        // max negative diagonals + 1 zero diagonal (k = 0) + max positive diagonals
-        let stride = 2 * max + 1;
         Self {
-            buffer: vec![0; stride * 2],
-            max,
+            vf: DiagonalBuffer::new(max),
+            vb: DiagonalBuffer::new(max),
+        }
+    }
+}
+
+/// A maximal diagonal run of identical elements (`old[start_x..start_x + len] == new[start_y..start_y + len]`).
+///
+/// In Myers' divide-and-conquer bisection, the middle snake connects
+/// a forward furthest-reaching path with a backward furthest-reaching path.
+/// Coordinates are expressed relative to the containing edit box.
+///
+/// # Note on Myers' Paper Terminology
+/// In Section 2 of Myers' 1986 paper (*"An O(ND) Difference Algorithm and Its Variations"*),
+/// a "snake" is formally defined as an atomic search-frontier step: one edit move
+/// (horizontal deletion or vertical insertion of cost 1) followed by zero or more diagonal edges
+/// (matches of cost 0).
+///
+/// In Section 4 (the linear-space divide-and-conquer refinement) and in this struct,
+/// `Snake` represents strictly the maximal diagonal run of identical elements (`Δx == Δy == len`)
+/// where the forward and backward search frontiers meet. The edit moves are not part of
+/// the snake itself; they belong to the subproblems on either side of it. This ensures
+/// `Δx == Δy == len` by construction and allows clean bisection of [`EditBox`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Snake {
+    pub start_x: usize,
+    pub start_y: usize,
+    pub len: usize,
+}
+
+impl Snake {
+    /// Creates a new `Snake` starting at relative coordinates `(start_x, start_y)` of length `len`.
+    #[inline]
+    pub fn new(start_x: usize, start_y: usize, len: usize) -> Self {
+        Self {
+            start_x,
+            start_y,
+            len,
         }
     }
 
-    /// The number of diagonal slots needed to store all diagonals from `-max` to `+max` inclusive.
+    /// End X-coordinate relative to the containing edit box (`start_x + len`).
     #[inline]
-    pub fn stride(&self) -> usize {
-        2 * self.max + 1
+    pub fn end_x(&self) -> usize {
+        self.start_x + self.len
     }
 
-    /// Slices the buffer into forward (`vf`) and backward (`vb`) mutable diagonal arrays.
+    /// End Y-coordinate relative to the containing edit box (`start_y + len`).
+    #[inline]
+    pub fn end_y(&self) -> usize {
+        self.start_y + self.len
+    }
+
+    /// Returns `true` if this snake has zero length (a point match transition).
+    #[allow(dead_code)]
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+/// A 2D bounding box in the edit graph representing a diff subproblem.
+///
+/// In Myers' 1986 paper (Section 4), sequence A runs along the horizontal X-axis
+/// and sequence B runs along the vertical Y-axis. An `EditBox` bounds a 2D rectangle
+/// `[old_range × new_range]` comparing `A[old_range]` against `B[new_range]`.
+///
+/// It requires two independent ranges because insertions and deletions advance each
+/// sequence at different rates, meaning each subproblem can have different start/end
+/// offsets and lengths.
+///
+/// Divide-and-conquer iteratively bisects this box around middle snakes into independent
+/// left (top-left) and right (bottom-right) sub-boxes until reaching base cases (identical
+/// matches or pure insertions/deletions) that emit as diff hunks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct EditBox {
+    /// Half-open range of indices in sequence A (horizontal X-axis).
+    pub old_range: Range<usize>,
+    /// Half-open range of indices in sequence B (vertical Y-axis).
+    pub new_range: Range<usize>,
+}
+
+impl EditBox {
+    /// Constructs a new `EditBox` from old and new index ranges.
+    #[inline]
+    pub fn new(old_range: Range<usize>, new_range: Range<usize>) -> Self {
+        Self {
+            old_range,
+            new_range,
+        }
+    }
+
+    /// Number of elements remaining in sequence A within this box.
+    #[inline]
+    pub fn old_len(&self) -> usize {
+        self.old_range.len()
+    }
+
+    /// Number of elements remaining in sequence B within this box.
+    #[inline]
+    pub fn new_len(&self) -> usize {
+        self.new_range.len()
+    }
+
+    /// Returns `true` if both old and new ranges are completely empty.
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.old_range.is_empty() && self.new_range.is_empty()
+    }
+
+    /// Trims matching elements from the start of both ranges in-place,
+    /// advancing `old_range.start` and `new_range.start`.
+    pub fn trim_common_prefix<F>(&mut self, mut equals: F) -> usize
+    where
+        F: FnMut(usize, usize) -> bool,
+    {
+        let mut count = 0;
+        while self.old_range.start < self.old_range.end
+            && self.new_range.start < self.new_range.end
+            && equals(self.old_range.start, self.new_range.start)
+        {
+            self.old_range.start += 1;
+            self.new_range.start += 1;
+            count += 1;
+        }
+        count
+    }
+
+    /// Trims matching elements from the end of both ranges in-place,
+    /// decrementing `old_range.end` and `new_range.end`.
+    pub fn trim_common_suffix<F>(&mut self, mut equals: F) -> usize
+    where
+        F: FnMut(usize, usize) -> bool,
+    {
+        let mut count = 0;
+        while self.old_range.start < self.old_range.end
+            && self.new_range.start < self.new_range.end
+            && equals(self.old_range.end - 1, self.new_range.end - 1)
+        {
+            self.old_range.end -= 1;
+            self.new_range.end -= 1;
+            count += 1;
+        }
+        count
+    }
+
+    /// Bisects this edit box around a middle snake, producing independent `(left, right)` boxes.
     ///
-    /// The underlying buffer is partitioned into two disjoint slices of equal size `stride`.
-    /// Each slice is indexed by diagonal `k` offset by `max` (using `Workspace::offset`).
-    /// - The first slice represents the forward search vector (`vf`).
-    /// - The second slice represents the backward search vector (`vb`).
+    /// The snake itself represents identical tokens and is excluded from both boxes:
+    /// - `left` covers `(old_start..old_start + snake.start_x, new_start..new_start + snake.start_y)`
+    /// - `right` covers `(old_start + snake.end_x()..old_end, new_start + snake.end_y()..new_end)`
     #[inline]
-    pub fn split_diagonals(&mut self) -> (&mut [usize], &mut [usize]) {
-        let stride = self.stride();
-        self.buffer.split_at_mut(stride)
+    pub fn split_around(&self, snake: Snake) -> (EditBox, EditBox) {
+        let left = EditBox::new(
+            self.old_range.start..(self.old_range.start + snake.start_x),
+            self.new_range.start..(self.new_range.start + snake.start_y),
+        );
+        let right = EditBox::new(
+            (self.old_range.start + snake.end_x())..self.old_range.end,
+            (self.new_range.start + snake.end_y())..self.new_range.end,
+        );
+        (left, right)
     }
 
+    /// Converts an edit box where at least one side is empty into an edit `Hunk`.
     #[inline]
-    pub fn offset(&self) -> usize {
-        self.max
+    pub fn into_hunk(self) -> Hunk {
+        Hunk::new(self.old_range, self.new_range)
     }
 }
 
-/// A "snake" in Myers' algorithm: a maximal diagonal run of identical elements (`A[x..u] == B[y..v]`).
-///
-/// In linear-space divide-and-conquer, the middle snake bisects an edit box into two smaller
-/// partitions: `(0..x, 0..y)` on the left, and `(u..n, v..m)` on the right.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Snake {
-    /// Start index in sequence A
-    pub x: usize,
-    /// Start index in sequence B
-    pub y: usize,
-    /// End index in sequence A
-    pub u: usize,
-    /// End index in sequence B
-    pub v: usize,
-}
-
-/// A rectangular 2D slice of the edit graph defined by two sub-sequences:
-/// `A[x_off..x_off + n]` along the X-axis and `B[y_off..y_off + m]` along the Y-axis.
-///
-/// Divide-and-conquer iteratively subdivides this box around middle snakes
-/// until reaching base cases (identical matches or pure insertions/deletions).
-#[derive(Debug, Clone, Copy)]
-struct EditBox {
-    /// Starting X-coordinate (offset into sequence A) where this box begins.
+/// Greedily advances `(x, y)` along a forward diagonal while elements match.
+#[inline]
+pub(crate) fn extend_forward<F>(
+    mut x: usize,
+    mut y: usize,
+    max_x: usize,
+    max_y: usize,
     x_off: usize,
-    /// Starting Y-coordinate (offset into sequence B) where this box begins.
     y_off: usize,
-    /// Number of elements from sequence A (width along X-axis).
-    n: usize,
-    /// Number of elements from sequence B (height along Y-axis).
-    m: usize,
+    equals: &mut F,
+) -> (usize, usize)
+where
+    F: FnMut(usize, usize) -> bool,
+{
+    while x < max_x && y < max_y && equals(x_off + x, y_off + y) {
+        x += 1;
+        y += 1;
+    }
+    (x, y)
 }
 
-/// Computes the Shortest Edit Script (SES) in $O(N + M)$ space and $O(N \cdot D)$ time,
+/// Greedily retreats `(x, y)` along a backward diagonal while elements match.
+#[inline]
+pub(crate) fn extend_backward<F>(
+    mut x: usize,
+    mut y: usize,
+    x_off: usize,
+    y_off: usize,
+    equals: &mut F,
+) -> (usize, usize)
+where
+    F: FnMut(usize, usize) -> bool,
+{
+    while x > 0 && y > 0 && equals(x_off + x - 1, y_off + y - 1) {
+        x -= 1;
+        y -= 1;
+    }
+    (x, y)
+}
+
+/// Appends a `Hunk` to the list, coalescing it with the preceding hunk if they are adjacent or overlapping.
+#[inline]
+pub(crate) fn push_or_coalesce(hunks: &mut Vec<Hunk>, hunk: Hunk) {
+    if let Some(last) = hunks.last_mut() {
+        let last_old = last.old_range();
+        let last_new = last.new_range();
+        let hunk_old = hunk.old_range();
+        let hunk_new = hunk.new_range();
+
+        if last_old.end >= hunk_old.start && last_new.end >= hunk_new.start {
+            *last = Hunk::new(
+                last_old.start..last_old.end.max(hunk_old.end),
+                last_new.start..last_new.end.max(hunk_new.end),
+            );
+            return;
+        }
+    }
+    hunks.push(hunk);
+}
+
+/// Computes the Shortest Edit Script (SES) in `O((N + M) * D)` time and `O(N + M)` space,
 /// based on Eugene Myers' 1986 paper *"An O(ND) Difference Algorithm and Its Variations"*.
 /// https://publications.mpi-cbg.de/Myers_1986_6330.pdf
 ///
 /// Myers models diffing as finding the shortest path across a 2D edit graph where deletions
 /// and insertions cost 1, while identical diagonal matches cost 0. By exploring along
-/// diagonals $k = x - y$, it greedily tracks the furthest-reaching paths for each edit step.
+/// diagonals `k = x - y`, it greedily tracks the furthest-reaching paths for each edit step.
 ///
 /// This implementation maps Myers' linear-space refinement into an iterative architecture:
-/// a single contiguous `Workspace` hosts both forward and backward diagonals via `split_at_mut`,
-/// an explicit `EditBox` worklist replaces call-stack recursion to guarantee overflow safety,
-/// and bidirectional middle snakes bisect ranges until reaching base cases that coalesce into hunks.
+/// - `Workspace` hosts preallocated forward and backward diagonal buffers (`DiagonalBuffer` with `Index<isize>`),
+/// - An explicit `EditBox` worklist replaces call-stack recursion to guarantee overflow safety,
+/// - Bounding boxes bisect around bidirectional middle snakes until reaching base cases that coalesce into hunks.
 ///
 /// # Arguments
 /// * `len_a` - Number of elements in sequence A.
@@ -97,122 +298,65 @@ pub(crate) fn myers<F>(len_a: usize, len_b: usize, mut equals: F) -> EditScript
 where
     F: FnMut(usize, usize) -> bool,
 {
-    let max = len_a + len_b;
-    let mut ws = Workspace::new(max);
+    let mut ws = Workspace::new(len_a + len_b);
     let mut hunks: Vec<Hunk> = Vec::new();
 
-    // stack for iterative approach (avoid stack overflow)
+    // Stack for iterative divide-and-conquer (avoids call stack overflow on large inputs)
     let mut stack = Vec::with_capacity(32);
-    stack.push(EditBox {
-        x_off: 0,
-        y_off: 0,
-        n: len_a,
-        m: len_b,
-    });
+    stack.push(EditBox::new(0..len_a, 0..len_b));
 
-    while let Some(edit_box) = stack.pop() {
-        let EditBox {
-            mut x_off,
-            mut y_off,
-            mut n,
-            mut m,
-        } = edit_box;
+    while let Some(mut edit_box) = stack.pop() {
+        // Fast-path: trim common prefixes and suffixes
+        edit_box.trim_common_prefix(&mut equals);
+        edit_box.trim_common_suffix(&mut equals);
 
-        while n > 0 && m > 0 && equals(x_off, y_off) {
-            x_off += 1;
-            y_off += 1;
-            n -= 1;
-            m -= 1;
-        }
-
-        while n > 0 && m > 0 && equals(x_off + n - 1, y_off + m - 1) {
-            n -= 1;
-            m -= 1;
-        }
-
-        if n == 0 && m == 0 {
+        if edit_box.is_empty() {
             continue;
         }
 
-        if n == 0 {
-            push_or_coalesce(&mut hunks, Hunk::new(x_off..x_off, y_off..y_off + m));
+        // Base cases: one or both sequences exhausted
+        if edit_box.old_len() == 0 || edit_box.new_len() == 0 {
+            push_or_coalesce(&mut hunks, edit_box.into_hunk());
             continue;
         }
 
-        if m == 0 {
-            push_or_coalesce(&mut hunks, Hunk::new(x_off..x_off + n, y_off..y_off));
-            continue;
-        }
-
-        // Find the middle snake: the maximal run of matching elements where forward and backward
-        // searches meet, bisecting this edit box into two smaller independent partitions.
-        if let Some(snake) = middle_snake(x_off, y_off, n, m, &mut equals, &mut ws) {
-            // Push RIGHT box first so that LEFT box is popped first,
-            // This guarantees hunks are emitted in strictly ascending index order so that there is
-            // no need to sort after collection
-            stack.push(EditBox {
-                x_off: x_off + snake.u,
-                y_off: y_off + snake.v,
-                n: n - snake.u,
-                m: m - snake.v,
-            });
-
-            stack.push(EditBox {
-                x_off,
-                y_off,
-                n: snake.x,
-                m: snake.y,
-            });
+        // Bisect edit box around middle snake
+        if let Some(snake) = middle_snake(&edit_box, &mut equals, &mut ws) {
+            let (left, right) = edit_box.split_around(snake);
+            // Push right box first so that left box is popped first.
+            // This guarantees hunks are emitted in strictly ascending index order.
+            stack.push(right);
+            stack.push(left);
+        } else {
+            push_or_coalesce(&mut hunks, edit_box.into_hunk());
         }
     }
 
     EditScript::new(hunks)
 }
 
-/// Appends a `Hunk` to the list, coalescing it with the preceding hunk if they are adjacent or overlapping.
-fn push_or_coalesce(hunks: &mut Vec<Hunk>, hunk: Hunk) {
-    if let Some(last) = hunks.last_mut() {
-        let old_r = last.old_range();
-        let new_r = last.new_range();
-        let h_old = hunk.old_range();
-        let h_new = hunk.new_range();
-
-        if old_r.end >= h_old.start && new_r.end >= h_new.start {
-            *last = Hunk::new(
-                old_r.start..old_r.end.max(h_old.end),
-                new_r.start..new_r.end.max(h_new.end),
-            );
-            return;
-        }
-    }
-    hunks.push(hunk);
-}
-
-/// Finds the middle snake in O(ND) time and O(N + M) space.
-/// Reuses the forward and backward slices from `ws` without allocating.
-fn middle_snake<F>(
-    x_off: usize,
-    y_off: usize,
-    n: usize,
-    m: usize,
-    equals: &mut F,
-    ws: &mut Workspace,
-) -> Option<Snake>
+/// Finds the middle snake in `O((N + M) * D)` time and `O(N + M)` space.
+///
+/// Explores forward D-paths from `(0, 0)` (the start of `edit_box`) and backward
+/// D-paths from `(N, M)` (the end of `edit_box`, where `N = edit_box.old_len()`
+/// and `M = edit_box.new_len()`) until they overlap on the same diagonal `k`.
+/// Reuses `ws` without dynamic allocations.
+fn middle_snake<F>(edit_box: &EditBox, equals: &mut F, ws: &mut Workspace) -> Option<Snake>
 where
     F: FnMut(usize, usize) -> bool,
 {
+    let n = edit_box.old_len();
+    let m = edit_box.new_len();
     let max = n + m;
     let delta = n as isize - m as isize;
     let odd = (delta & 1) != 0;
-    let offset = ws.offset();
 
-    let (vf, vb) = ws.split_diagonals();
+    let (vf, vb) = (&mut ws.vf, &mut ws.vb);
 
-    let k0_idx = offset;
-    vf[k0_idx] = 0;
-
-    let k_delta_idx = (delta + offset as isize) as usize;
-    vb[k_delta_idx] = n;
+    // Initial endpoints: forward path at (0, 0) on diagonal k=0,
+    // backward path at (n, m) on diagonal k=delta
+    vf[0] = 0;
+    vb[delta] = n;
 
     let d_max = max.div_ceil(2);
     let min_k = -(m as isize);
@@ -221,99 +365,89 @@ where
     for d in 1..=d_max {
         let d_isize = d as isize;
 
+        // Forward search: explore D-paths from (0, 0)
+        // Descending order (.rev().step_by(2)) preserves GNU diff tie-breaking preference
         for k in (-d_isize..=d_isize).rev().step_by(2) {
             if k < min_k || k > max_k {
                 continue;
             }
 
-            let k_idx = (k + offset as isize) as usize;
-            let mut x = if k == -d_isize
+            let x_start = if k == -d_isize
                 || k == min_k
-                || (k != d_isize && k != max_k && vf[k_idx - 1] < vf[k_idx + 1])
+                || (k != d_isize && k != max_k && vf[k - 1] < vf[k + 1])
             {
-                vf[k_idx + 1]
+                vf[k + 1]
             } else {
-                vf[k_idx - 1] + 1
+                vf[k - 1] + 1
             };
-            let y_isize = x as isize - k;
-            let x0 = x;
-            let y0 = if y_isize >= 0 { y_isize as usize } else { 0 };
 
-            if y_isize >= 0 {
-                let mut y = y_isize as usize;
-                while x < n && y < m && equals(x_off + x, y_off + y) {
-                    x += 1;
-                    y += 1;
-                }
-            }
-            vf[k_idx] = x;
+            let y_start_isize = x_start as isize - k;
+            let (x0, y0) = (x_start, y_start_isize.max(0) as usize);
+
+            let (x, _) = if y_start_isize >= 0 {
+                extend_forward(
+                    x_start,
+                    y_start_isize as usize,
+                    n,
+                    m,
+                    edit_box.old_range.start,
+                    edit_box.new_range.start,
+                    equals,
+                )
+            } else {
+                (x_start, 0)
+            };
+
+            vf[k] = x; // Record the furthest-reaching forward endpoint on diagonal k
 
             // If delta is odd, check if forward search overlaps backward search
-            if odd
-                && k >= delta - (d_isize - 1)
-                && k <= delta + (d_isize - 1)
-                && vf[k_idx] >= vb[k_idx]
-            {
-                let y = (x as isize - k).max(0) as usize;
-                return Some(Snake {
-                    x: x0,
-                    y: y0,
-                    u: x,
-                    v: y,
-                });
+            if odd && k >= delta - (d_isize - 1) && k <= delta + (d_isize - 1) && vf[k] >= vb[k] {
+                let snake_len = x - x0;
+                return Some(Snake::new(x0, y0, snake_len));
             }
         }
 
+        // Backward search: explore D-paths backwards from (N, M)
         for k in ((delta - d_isize)..=(delta + d_isize)).rev().step_by(2) {
             if k < min_k || k > max_k {
                 continue;
             }
 
-            let k_idx = (k + offset as isize) as usize;
-
-            let mut u = if k == delta + d_isize || k == max_k {
-                vb[k_idx - 1]
+            let u_start = if k == delta + d_isize || k == max_k {
+                vb[k - 1]
             } else if k == delta - d_isize || k == min_k {
-                vb[k_idx + 1].saturating_sub(1)
-            } else if vb[k_idx - 1] < vb[k_idx + 1].saturating_sub(1) {
-                vb[k_idx - 1]
+                vb[k + 1].saturating_sub(1)
+            } else if vb[k - 1] < vb[k + 1].saturating_sub(1) {
+                vb[k - 1]
             } else {
-                vb[k_idx + 1].saturating_sub(1)
+                vb[k + 1].saturating_sub(1)
             };
 
-            let v_isize = u as isize - k;
-            let u0 = u;
-            let v0 = if v_isize >= 0 { v_isize as usize } else { 0 };
+            let v_start_isize = u_start as isize - k;
+            let u0 = u_start;
 
-            if v_isize >= 0 {
-                let mut v = v_isize as usize;
-                while u > 0 && v > 0 && equals(x_off + u - 1, y_off + v - 1) {
-                    u -= 1;
-                    v -= 1;
-                }
-            }
-            vb[k_idx] = u;
+            let (u, v) = if v_start_isize >= 0 {
+                extend_backward(
+                    u_start,
+                    v_start_isize as usize,
+                    edit_box.old_range.start,
+                    edit_box.new_range.start,
+                    equals,
+                )
+            } else {
+                (u_start, 0)
+            };
+            vb[k] = u;
 
             // If delta is even, check if backward search overlaps forward search
-            if !odd && k >= -d_isize && k <= d_isize && vf[k_idx] >= vb[k_idx] {
-                let v = (u as isize - k).max(0) as usize;
-                return Some(Snake {
-                    x: u,
-                    y: v,
-                    u: u0,
-                    v: v0,
-                });
+            if !odd && k >= -d_isize && k <= d_isize && vf[k] >= vb[k] {
+                let snake_len = u0 - u;
+                return Some(Snake::new(u, v, snake_len));
             }
         }
     }
 
-    // Fallback: full substitution if search limit reached
-    Some(Snake {
-        x: 0,
-        y: 0,
-        u: n,
-        v: m,
-    })
+    None
 }
 
 #[cfg(test)]
@@ -350,10 +484,21 @@ mod tests {
 
     #[test]
     fn test_myers_complex() {
+        // Myers 1986 paper example: A = "ABCABBA", B = "CBABAC"
+        // Optimal D = 5: LCS is ["C", "B", "B", "A"] (length 4)
         let a = ["A", "B", "C", "A", "B", "B", "A"];
         let b = ["C", "B", "A", "B", "A", "C"];
         let script = myers(a.len(), b.len(), |i, j| a[i] == b[j]);
-        assert!(!script.is_empty());
+
+        assert_eq!(script.len(), 4);
+        assert_eq!(script.hunks()[0].old_range(), 0..2); // Delete "A", "B"
+        assert_eq!(script.hunks()[0].new_range(), 0..0);
+        assert_eq!(script.hunks()[1].old_range(), 3..4); // Delete "A"
+        assert_eq!(script.hunks()[1].new_range(), 1..1);
+        assert_eq!(script.hunks()[2].old_range(), 5..5); // Insert "A"
+        assert_eq!(script.hunks()[2].new_range(), 2..3);
+        assert_eq!(script.hunks()[3].old_range(), 7..7); // Insert "C"
+        assert_eq!(script.hunks()[3].new_range(), 5..6);
     }
 
     #[test]
@@ -450,5 +595,102 @@ mod tests {
         assert_eq!(script.hunks()[1].new_range(), 3..3);
         assert_eq!(script.hunks()[2].old_range(), 4..5); // Replace apple with carrot
         assert_eq!(script.hunks()[2].new_range(), 4..5);
+    }
+
+    #[test]
+    fn test_diagonal_buffer_indexing_and_mutation() {
+        let mut buf = DiagonalBuffer::new(4);
+
+        buf[-4] = 42;
+        buf[0] = 100;
+        buf[4] = 999;
+        buf[-1] = buf[0] + 5;
+
+        assert_eq!(buf[-4], 42);
+        assert_eq!(buf[0], 100);
+        assert_eq!(buf[4], 999);
+        assert_eq!(buf[-1], 105);
+    }
+
+    #[test]
+    fn test_workspace_buffers() {
+        let mut ws = Workspace::new(5);
+        ws.vf[0] = 10;
+        ws.vf[-5] = 20;
+        ws.vf[5] = 30;
+
+        ws.vb[0] = 50;
+        ws.vb[-5] = 60;
+        ws.vb[5] = 70;
+
+        assert_eq!(ws.vf[0], 10);
+        assert_eq!(ws.vf[-5], 20);
+        assert_eq!(ws.vf[5], 30);
+        assert_eq!(ws.vb[0], 50);
+        assert_eq!(ws.vb[-5], 60);
+        assert_eq!(ws.vb[5], 70);
+    }
+
+    #[test]
+    fn test_snake_properties() {
+        let empty_snake = Snake::new(2, 3, 0);
+        assert!(empty_snake.is_empty());
+        assert_eq!(empty_snake.len, 0);
+        assert_eq!(empty_snake.end_x(), 2);
+        assert_eq!(empty_snake.end_y(), 3);
+
+        let active_snake = Snake::new(1, 2, 3);
+        assert!(!active_snake.is_empty());
+        assert_eq!(active_snake.len, 3);
+        assert_eq!(active_snake.end_x(), 4);
+        assert_eq!(active_snake.end_y(), 5);
+    }
+
+    #[test]
+    fn test_extend_forward_and_backward() {
+        let a = ["a", "b", "c", "d"];
+        let b = ["x", "b", "c", "y"];
+        let mut equals = |i, j| a[i] == b[j];
+
+        // Forward extension: starting at (1, 1), offset (0, 0)
+        let (x, y) = extend_forward(1, 1, 4, 4, 0, 0, &mut equals);
+        assert_eq!((x, y), (3, 3));
+
+        // Backward extension: starting backwards from (3, 3), offset (0, 0)
+        let (x, y) = extend_backward(3, 3, 0, 0, &mut equals);
+        assert_eq!((x, y), (1, 1));
+    }
+
+    #[test]
+    fn test_edit_box_trimming_and_splitting() {
+        let a = ["header", "a", "b", "footer"];
+        let b = ["header", "x", "footer"];
+        let mut equals = |i, j| a[i] == b[j];
+
+        let mut box_ = EditBox::new(0..a.len(), 0..b.len());
+        assert_eq!(box_.trim_common_prefix(&mut equals), 1);
+        assert_eq!(box_.old_range, 1..4);
+        assert_eq!(box_.new_range, 1..3);
+
+        assert_eq!(box_.trim_common_suffix(&mut equals), 1);
+        assert_eq!(box_.old_range, 1..3); // "a", "b"
+        assert_eq!(box_.new_range, 1..2); // "x"
+
+        // Split around a snake at relative (1, 0) of len 0
+        let snake = Snake::new(1, 0, 0);
+        let (left, right) = box_.split_around(snake);
+        assert_eq!(left.old_range, 1..2);
+        assert_eq!(left.new_range, 1..1);
+        assert_eq!(right.old_range, 2..3);
+        assert_eq!(right.new_range, 1..2);
+    }
+
+    #[test]
+    fn test_edit_box_into_hunk() {
+        let box_ = EditBox::new(2..5, 3..3);
+        let hunk = box_.into_hunk();
+        assert_eq!(hunk.old_range(), 2..5);
+        assert_eq!(hunk.new_range(), 3..3);
+        assert!(hunk.is_deletion());
     }
 }
