@@ -1,19 +1,26 @@
-use std::collections::HashMap;
+use rustc_hash::{FxBuildHasher, FxHashMap};
 
 /// Maps arbitrary string slices to unique `u32` token IDs.
-/// Guarantees 100% sound equality checks with zero hash collisions.
+///
+/// Uses [`FxHashMap`] for fast, non-cryptographic hashing of short string slices
+/// (such as source code lines), avoiding the latency of standard cryptographic hashing
+/// while guaranteeing sound equality checks without hash collisions.
 pub(crate) struct TokenInterner<'a> {
-    map: HashMap<&'a str, u32>,
+    map: FxHashMap<&'a str, u32>,
 }
 
 impl<'a> TokenInterner<'a> {
-    pub fn new() -> Self {
+    /// Creates a new `TokenInterner` with pre-allocated capacity for `capacity` unique tokens,
+    /// eliminating dynamic table reallocations and rehashing.
+    #[inline]
+    pub fn with_capacity(capacity: usize) -> Self {
         Self {
-            map: HashMap::new(),
+            map: FxHashMap::with_capacity_and_hasher(capacity, FxBuildHasher),
         }
     }
 
-    /// Interns a slice of string tokens into a `Vec<u32>`.
+    /// Interns a slice of string tokens into a `Vec<u32>`, mapping identical tokens
+    /// to matching incremental `u32` IDs.
     pub fn intern(&mut self, tokens: &[&'a str]) -> Vec<u32> {
         tokens
             .iter()
@@ -31,8 +38,8 @@ mod tests {
 
     #[test]
     fn test_interner() {
-        let mut interner = TokenInterner::new();
         let tokens = ["apple", "banana", "apple", "cherry"];
+        let mut interner = TokenInterner::with_capacity(tokens.len());
         let ids = interner.intern(&tokens);
 
         assert_eq!(ids.len(), 4);
