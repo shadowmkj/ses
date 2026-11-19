@@ -1,3 +1,28 @@
+## [v0.0.4](https://github.com/shadowmkj/ses/releases/tag/v0.0.4) - 2026-11-19
+
+### 🚀 Features
+
+- *(optimize)* Generalize diff_lines and TokenInterner for raw bytes - ([cc959cd](https://github.com/shadowmkj/ses/commit/cc959cd4e38b1be44316b8e39c457d4fd01c1a62)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### 🐛 Bug Fixes
+
+- *(diff)* Encapsulate from_parts as pub(crate) and add debug validation - ([1a6692a](https://github.com/shadowmkj/ses/commit/1a6692abc6db0866c4bdef807cb346fcedf1b2aa)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### ⚡️ Performance
+
+- *(optimize)* Optimize token interning performance with rustc-hash ([#10](https://github.com/shadowmkj/ses/pull/10)) - ([2e591ae](https://github.com/shadowmkj/ses/commit/2e591aec7d2403344fc44a1d22865b72ab5614c7)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### 👷 CI
+
+- *(release)* Extract release notes directly from CHANGELOG.md - ([cbde57e](https://github.com/shadowmkj/ses/commit/cbde57e757c0dd8700cb30a19549eaa0d66ece4c)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### ⚙️ Misc
+
+- Update README.md with latest API changes - ([3ed0246](https://github.com/shadowmkj/ses/commit/3ed02465cad542139452ade7d69f805b3f5df116)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+- Add extensive documentations and examples for public API - ([9c35e3a](https://github.com/shadowmkj/ses/commit/9c35e3ac924c1c852c308c8769c4d3493e5a722a)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+- Flatten public module structure for iterators - ([eda3657](https://github.com/shadowmkj/ses/commit/eda3657e6011b6348ad738f371e10f7bf5c21aa0)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+- *(bench)* Add performance benchmarking suite with criterion - ([7801de0](https://github.com/shadowmkj/ses/commit/7801de0b1fb647c5774e9d121a90fbf0f1d8eaf4)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+- *(algorithm)* Use Bitset instead of bool vectors in shift algorithm ([#9](https://github.com/shadowmkj/ses/pull/9)) - ([c75d540](https://github.com/shadowmkj/ses/commit/c75d5406fcb80aec28432f80700a470451ae2179)) (from [`@shadowmkj`](https://github.com/shadowmkj))
 ## [v0.0.3](https://github.com/shadowmkj/ses/releases/tag/v0.0.3) - 2026-11-18
 
 ### 🚀 Features
