@@ -11,3 +11,27 @@ keywords = ["diff", "myers", "shortest-edit-script", "diffutils", "zero-copy"]
 categories = ["algorithms", "development-tools", "text-processing"]
 
 [dependencies]
+
+[dev-dependencies]
+criterion = { version = "6.0.0", package = "codspeed-criterion-compat" }
+
+[[bench]]
+name = "diff_bench"
+harness = false
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+[profile.debug]
+opt-level = 0
+lto = "thin"
+debug = true
+strip = "none"
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+debug = true
