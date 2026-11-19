@@ -7,7 +7,7 @@ use crate::edit::EditScript;
 /// - [`Change::Delete`]: The element was present in the original sequence but removed.
 /// - [`Change::Insert`]: The element was added to the modified sequence.
 ///
-/// Unlike [`DiffChunk`](crate::views::chunk::DiffChunk), which groups contiguous elements
+/// Unlike [`DiffChunk`](crate::DiffChunk), which groups contiguous elements
 /// into slices (`&'a [T]`), `Change<'a, T>` yields elements one by one.
 ///
 /// # Examples

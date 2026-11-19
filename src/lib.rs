@@ -49,15 +49,14 @@
 //! ```
 
 pub(crate) mod algorithm;
-pub mod diff;
-pub mod edit;
+mod diff;
+mod edit;
 pub(crate) mod optimize;
-pub mod views;
+mod views;
 
 pub use diff::Diff;
 pub use edit::{EditScript, Hunk};
-pub use views::change::{Change, ChangesIter};
-pub use views::chunk::{ChunksIter, DiffChunk};
+pub use views::{Change, ChangesIter, ChunksIter, DiffChunk};
 
 /// Computes the diff between two slices using custom element equality logic.
 ///

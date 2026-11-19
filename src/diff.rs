@@ -226,8 +226,8 @@ impl<'a, T> Diff<'a, T> {
     ///     }
     /// }
     /// ```
-    pub fn iter_changes<'s>(&'s self) -> crate::views::change::ChangesIter<'s, 'a, T> {
-        crate::views::change::ChangesIter::new(&self.script, self.old, self.new)
+    pub fn iter_changes<'s>(&'s self) -> crate::ChangesIter<'s, 'a, T> {
+        crate::ChangesIter::new(&self.script, self.old, self.new)
     }
 
     /// Lazily iterates over contiguous chunk slices ([`DiffChunk`](crate::DiffChunk): `Equal`, `Delete`, `Insert`).
@@ -249,8 +249,8 @@ impl<'a, T> Diff<'a, T> {
     ///     }
     /// }
     /// ```
-    pub fn iter_chunks<'s>(&'s self) -> crate::views::chunk::ChunksIter<'s, 'a, T> {
-        crate::views::chunk::ChunksIter::new(&self.script, self.old, self.new)
+    pub fn iter_chunks<'s>(&'s self) -> crate::ChunksIter<'s, 'a, T> {
+        crate::ChunksIter::new(&self.script, self.old, self.new)
     }
 }
 

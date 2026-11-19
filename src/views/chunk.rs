@@ -2,7 +2,7 @@ use crate::edit::EditScript;
 
 /// Represents a contiguous sub-slice of changes (grouping sequential tokens).
 ///
-/// Unlike [`Change`](crate::views::change::Change), which yields elements one by one,
+/// Unlike [`Change`](crate::Change), which yields elements one by one,
 /// `DiffChunk` groups adjacent elements of the same kind into contiguous slices (`&'a [T]`).
 /// This enables high-performance block-level rendering and formatted output.
 ///

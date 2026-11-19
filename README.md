@@ -4,27 +4,37 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > [!NOTE]
-> **Notice**: This is a temporary crate built for testing and evaluating a modern linear-space Myers diff algorithm for [`uutils/diffutils`](https://github.com/uutils/diffutils). For tracking and context, see [uutils/diffutils#401](https://github.com/uutils/diffutils/issues/401).
+> **Notice**: This is a temporary crate built for testing and evaluating a modern linear-space Myers
+> diff algorithm for [`uutils/diffutils`](https://github.com/uutils/diffutils). For tracking and
+> context, see [uutils/diffutils#401](https://github.com/uutils/diffutils/issues/401).
 
-A high-performance, zero-dependency, linear-space Myers diff engine written in idiomatic Rust (Edition 2024).
+A high-performance, zero-dependency, linear-space Myers diff engine written in idiomatic Rust
+(Edition 2024).
 
-`ses` computes the **Shortest Edit Script (SES)** between arbitrary sequences, based on Eugene Myers' 1986 seminal paper *["An O(ND) Difference Algorithm and Its Variations"](https://publications.mpi-cbg.de/Myers_1986_6330.pdf)*. It is designed as a memory-safe, robust foundation for CLI tools (such as `uutils/diffutils`), code editors, version control systems, and language servers.
+`ses` computes the **Shortest Edit Script (SES)** between arbitrary sequences, based on Eugene
+Myers' 1986 seminal paper
+_["An O(ND) Difference Algorithm and Its Variations"](https://publications.mpi-cbg.de/Myers_1986_6330.pdf)_.
+It is designed as a memory-safe, robust foundation for CLI tools (such as `uutils/diffutils`), code
+editors, version control systems, and language servers.
 
 ---
 
 ## Why `ses`?
 
-While the Rust ecosystem now offers several capable diff crates, `ses` is intentionally designed as an **ultra-minimal, zero-dependency, and blazing-fast** Myers diff engine. It provides a lean, robust foundation for systems tools (such as `uutils/diffutils`), CLI utilities, and embedded environments that require maximum efficiency and zero external baggage:
+While the Rust ecosystem now offers several capable diff crates, `ses` is intentionally designed as
+an **ultra-minimal, zero-dependency, and blazing-fast** Myers diff engine. It provides a lean,
+robust foundation for systems tools (such as `uutils/diffutils`), CLI utilities, and embedded
+environments that require maximum efficiency and zero external baggage:
 
-| Feature | `ses` |
-| :--- | :--- |
-| **Dependencies** | **Zero dependencies** (pure standard library, rapid compilation) |
-| **Performance & Speed** | **Blazing-fast** with linear-space Myers diff, `O(N)` prefix/suffix pruning, and token interning |
-| **Memory Complexity** | **Strictly `O(N + M)` linear space** (Eugene Myers 1986, Section 4) |
-| **Workspace Allocations** | **Preallocated workspace buffers** (zero allocations during middle-snake searches) |
-| **GNU Compatibility** | **Semantic boundary shifting** matching GNU `diffutils` hunk alignment |
-| **Result Representation** | **Lazy zero-copy streaming iterators** (`iter_changes`, `iter_chunks`) or compact range `Hunk`s |
-| **API Ergonomics** | **Clean `Change::Equal(&old, &new)`** preserving references to both inputs |
+| Feature                   | `ses`                                                                                            |
+| :------------------------ | :----------------------------------------------------------------------------------------------- |
+| **Dependencies**          | **Zero dependencies** (pure standard library, rapid compilation)                                 |
+| **Performance & Speed**   | **Blazing-fast** with linear-space Myers diff, `O(N)` prefix/suffix pruning, and token interning |
+| **Memory Complexity**     | **Strictly `O(N + M)` linear space** (Eugene Myers 1986, Section 4)                              |
+| **Workspace Allocations** | **Preallocated workspace buffers** (zero allocations during middle-snake searches)               |
+| **GNU Compatibility**     | **Semantic boundary shifting** matching GNU `diffutils` hunk alignment                           |
+| **Result Representation** | **Lazy zero-copy streaming iterators** (`iter_changes`, `iter_chunks`) or compact range `Hunk`s  |
+| **API Ergonomics**        | **Clean `Change::Equal(&old, &new)`** preserving references to both inputs                       |
 
 ---
 
@@ -43,7 +53,8 @@ ses = "0.0.3"
 
 ### 1. Element-by-Element Diffing (`Change`)
 
-Use `iter_changes()` to lazily stream fine-grained changes. Unchanged items yield `Change::Equal(&old, &new)`, allowing access to both original and modified references:
+Use `iter_changes()` to lazily stream fine-grained changes. Unchanged items yield
+`Change::Equal(&old, &new)`, allowing access to both original and modified references:
 
 ```rust
 use ses::{diff_slices, Change};
@@ -68,7 +79,8 @@ fn main() {
 
 ### 2. Contiguous Block Diffing (`DiffChunk`)
 
-For bulk I/O and formatters, `iter_chunks()` groups consecutive items into sub-slices (`&'a [T]`), avoiding element-by-element overhead:
+For bulk I/O and formatters, `iter_chunks()` groups consecutive items into sub-slices (`&'a [T]`),
+avoiding element-by-element overhead:
 
 ```rust
 use ses::{diff_slices, DiffChunk};
@@ -121,7 +133,8 @@ fn main() {
 
 ### 4. Custom Equality Predicates (`diff_slices_by`)
 
-Compare elements with custom matching logic (e.g., case-insensitive comparisons or whitespace normalization). `Change::Equal` preserves both the original and modified references:
+Compare elements with custom matching logic (e.g., case-insensitive comparisons or whitespace
+normalization). `Change::Equal` preserves both the original and modified references:
 
 ```rust
 use ses::{diff_slices_by, Change};
@@ -145,7 +158,9 @@ fn main() {
 
 ### 5. Inspecting Coordinate Ranges (`Hunk` & `Diff`)
 
-For tool developers building custom formatters (like unified or side-by-side diffs), `Diff` and `EditScript` implement `IntoIterator` for borrowed references, and `Diff` directly exposes convenient helper methods:
+For tool developers building custom formatters (like unified or side-by-side diffs), `Diff` and
+`EditScript` implement `IntoIterator` for borrowed references, and `Diff` directly exposes
+convenient helper methods:
 
 ```rust
 use ses::diff_slices;
@@ -176,12 +191,18 @@ fn main() {
 
 ## Architecture
 
-- **Linear-Space Diagonal Workspace**: Reuses preallocated forward and backward diagonal buffers (`Workspace`) throughout the middle-snake search, keeping total memory strictly bounded to `O(N + M)` with zero reallocations.
-- **Divide-and-Conquer (`EditBox`)**: Divides the search box around optimal middle snakes, in-place trimming common prefixes and suffixes before each split.
-- **Semantic Boundary Shifting**: Post-processes Myers edits to slide change boundaries across duplicate tokens (closing delimiters, blank lines, repeated words), cleanly coalescing adjacent hunks and matching canonical GNU `diffutils` formatting.
-- **Prefix & Suffix Pruning**: Strips identical boundaries in `O(N)` time before running graph searches, drastically reducing sub-problem dimensions.
-- **Token Interning**: In `diff_lines`, interns text lines into collision-free `u32` tokens for fast, single-instruction equality comparisons.
-- **Zero-Breaking-Change Encapsulation**: Struct fields are private with clean accessor methods following Rust API guidelines (C-STRUCT-PRIVATE).
+- **Linear-Space Diagonal Workspace**: Reuses preallocated forward and backward diagonal buffers
+  (`Workspace`) throughout the middle-snake search, keeping total memory strictly bounded to `O(N +
+  M)` with zero reallocations.
+- **Divide-and-Conquer (`EditBox`)**: Divides the search box around optimal middle snakes, in-place
+  trimming common prefixes and suffixes before each split.
+- **Semantic Boundary Shifting**: Post-processes Myers edits to slide change boundaries across
+  duplicate tokens (closing delimiters, blank lines, repeated words), cleanly coalescing adjacent
+  hunks and matching canonical GNU `diffutils` formatting.
+- **Prefix & Suffix Pruning**: Strips identical boundaries in `O(N)$ time before running graph
+  searches, drastically reducing sub-problem dimensions.
+- **Token Interning**: In `diff_lines`, interns text lines into collision-free `u32` tokens for
+  fast, single-instruction equality comparisons.
 
 ---
 
@@ -201,11 +222,13 @@ Runnable examples are provided in the [`examples/`](examples) directory:
   ```bash
   cargo run --example files
   ```
-- **`unified`**: Demonstrates building a custom unified diff formatter (`diff -u`) with context lines from `ses::Diff`:
+- **`unified`**: Demonstrates building a custom unified diff formatter (`diff -u`) with context
+  lines from `ses::Diff`:
   ```bash
   cargo run --example unified -- file_a.txt file_b.txt
   ```
-- **`sdiff`**: Demonstrates side-by-side diffing (`sdiff` / `diff -y`) with column alignment and suppression options:
+- **`sdiff`**: Demonstrates side-by-side diffing (`sdiff` / `diff -y`) with column alignment and
+  suppression options:
   ```bash
   cargo run --example sdiff -- file_a.txt file_b.txt
   ```
