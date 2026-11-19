@@ -280,7 +280,7 @@ pub fn diff_lines<'a>(old: &'a [&'a str], new: &'a [&'a str]) -> LineDiff<'a> {
         return Diff::from_parts(EditScript::default(), old, new);
     }
 
-    let mut interner = optimize::intern::TokenInterner::new();
+    let mut interner = optimize::intern::TokenInterner::with_capacity(old.len() + new.len());
     let old_tokens = interner.intern(trimmed.slice_a);
     let new_tokens = interner.intern(trimmed.slice_b);
 
