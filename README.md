@@ -19,8 +19,8 @@ While the Rust ecosystem now offers several capable diff crates, `ses` is intent
 | Feature | `ses` |
 | :--- | :--- |
 | **Dependencies** | **Zero dependencies** (pure standard library, rapid compilation) |
-| **Performance & Speed** | **Blazing-fast** with linear-space Myers diff, $O(N)$ prefix/suffix pruning, and token interning |
-| **Memory Complexity** | **Strictly $O(N + M)$ linear space** (Eugene Myers 1986, Section 4) |
+| **Performance & Speed** | **Blazing-fast** with linear-space Myers diff, `O(N)` prefix/suffix pruning, and token interning |
+| **Memory Complexity** | **Strictly `O(N + M)` linear space** (Eugene Myers 1986, Section 4) |
 | **Workspace Allocations** | **Preallocated workspace buffers** (zero allocations during middle-snake searches) |
 | **GNU Compatibility** | **Semantic boundary shifting** matching GNU `diffutils` hunk alignment |
 | **Result Representation** | **Lazy zero-copy streaming iterators** (`iter_changes`, `iter_chunks`) or compact range `Hunk`s |
@@ -176,10 +176,10 @@ fn main() {
 
 ## Architecture
 
-- **Linear-Space Diagonal Workspace**: Reuses preallocated forward and backward diagonal buffers (`Workspace`) throughout the middle-snake search, keeping total memory strictly bounded to $O(N + M)$ with zero reallocations.
+- **Linear-Space Diagonal Workspace**: Reuses preallocated forward and backward diagonal buffers (`Workspace`) throughout the middle-snake search, keeping total memory strictly bounded to `O(N + M)` with zero reallocations.
 - **Divide-and-Conquer (`EditBox`)**: Divides the search box around optimal middle snakes, in-place trimming common prefixes and suffixes before each split.
 - **Semantic Boundary Shifting**: Post-processes Myers edits to slide change boundaries across duplicate tokens (closing delimiters, blank lines, repeated words), cleanly coalescing adjacent hunks and matching canonical GNU `diffutils` formatting.
-- **Prefix & Suffix Pruning**: Strips identical boundaries in $O(N)$ time before running graph searches, drastically reducing sub-problem dimensions.
+- **Prefix & Suffix Pruning**: Strips identical boundaries in `O(N)` time before running graph searches, drastically reducing sub-problem dimensions.
 - **Token Interning**: In `diff_lines`, interns text lines into collision-free `u32` tokens for fast, single-instruction equality comparisons.
 - **Zero-Breaking-Change Encapsulation**: Struct fields are private with clean accessor methods following Rust API guidelines (C-STRUCT-PRIVATE).
 
