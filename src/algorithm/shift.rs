@@ -1,4 +1,7 @@
-use crate::edit::{EditScript, Hunk};
+use crate::{
+    edit::{EditScript, Hunk},
+    optimize::bitset::Bitset,
+};
 
 /// Adjusts insertion and deletion boundaries across identical elements
 /// to merge adjacent changes and prefer cleaner, intuitive diff boundaries.
@@ -20,18 +23,19 @@ where
     if hunks.is_empty() {
         return EditScript::default();
     }
+
     if n == 0 || m == 0 {
         return EditScript::new(hunks.to_vec());
     }
 
     // Boolean masks tracking modified elements in each sequence.
-    let mut changed_a = vec![false; n];
-    let mut changed_b = vec![false; m];
+    let mut changed_a = Bitset::new(n);
+    let mut changed_b = Bitset::new(m);
 
     // Mark all changed ranges directly using slice operations.
     for hunk in hunks {
-        changed_a[hunk.old_range()].fill(true);
-        changed_b[hunk.new_range()].fill(true);
+        changed_a.set_range(hunk.old_range());
+        changed_b.set_range(hunk.new_range());
     }
 
     // Shift deletions (sequence A) against insertions (sequence B),
@@ -44,7 +48,7 @@ where
 }
 
 /// Shifts change boundaries for a single sequence against the other sequence's changes.
-fn shift_sequence<T, F>(elements: &[T], changed: &mut [bool], other_changed: &[bool], mut equals: F)
+fn shift_sequence<T, F>(elements: &[T], changed: &mut Bitset, other_changed: &Bitset, mut equals: F)
 where
     F: FnMut(&T, &T) -> bool,
 {
@@ -55,7 +59,7 @@ where
 
     while i < len {
         // Advance i and j together through unchanged elements.
-        while i < len && !changed[i] {
+        while i < len && !changed.get(i) {
             advance_other_unchanged(other_changed, &mut j);
             i += 1;
         }
@@ -68,10 +72,10 @@ where
 
         // Find the end of this run of changes.
         i += 1;
-        while i < len && changed[i] {
+        while i < len && changed.get(i) {
             i += 1;
         }
-        while j < other_len && other_changed[j] {
+        while j < other_len && other_changed.get(j) {
             j += 1;
         }
 
@@ -85,10 +89,10 @@ where
             while start > 0 && equals(&elements[start - 1], &elements[i - 1]) {
                 start -= 1;
                 i -= 1;
-                changed[start] = true;
-                changed[i] = false;
+                changed.set(start);
+                changed.clear(i);
 
-                while start > 0 && changed[start - 1] {
+                while start > 0 && changed.get(start - 1) {
                     start -= 1;
                 }
                 step_back_other_unchanged(other_changed, &mut j);
@@ -104,14 +108,15 @@ where
             // Forward shift: while first changed element matches following unchanged element.
             // This merges with subsequent changed regions.
             while i < len && equals(&elements[start], &elements[i]) {
-                changed[start] = false;
-                changed[i] = true;
+                changed.clear(start);
+                changed.set(i);
                 start += 1;
                 i += 1;
 
-                while i < len && changed[i] {
+                while i < len && changed.get(i) {
                     i += 1;
                 }
+
                 step_forward_other_unchanged(other_changed, &mut j, i, &mut corresponding);
             }
 
@@ -125,8 +130,8 @@ where
         while corresponding < i {
             start -= 1;
             i -= 1;
-            changed[start] = true;
-            changed[i] = false;
+            changed.set(start);
+            changed.clear(i);
 
             step_back_other_unchanged(other_changed, &mut j);
         }
@@ -135,8 +140,8 @@ where
 
 /// Advances `j` in the other sequence past any changes and one matching unchanged element.
 #[inline]
-fn advance_other_unchanged(other: &[bool], j: &mut usize) {
-    while *j < other.len() && other[*j] {
+fn advance_other_unchanged(other: &Bitset, j: &mut usize) {
+    while *j < other.len() && other.get(*j) {
         *j += 1;
     }
     if *j < other.len() {
@@ -147,10 +152,10 @@ fn advance_other_unchanged(other: &[bool], j: &mut usize) {
 /// Steps `j` backward in the other sequence past one matching unchanged element
 /// and any preceding changes.
 #[inline]
-fn step_back_other_unchanged(other: &[bool], j: &mut usize) {
+fn step_back_other_unchanged(other: &Bitset, j: &mut usize) {
     if *j > 0 {
         *j -= 1;
-        while *j > 0 && other[*j] {
+        while *j > 0 && other.get(*j) {
             *j -= 1;
         }
     }
@@ -160,13 +165,13 @@ fn step_back_other_unchanged(other: &[bool], j: &mut usize) {
 /// and following changes, updating the correspondence index.
 #[inline]
 fn step_forward_other_unchanged(
-    other: &[bool],
+    other: &Bitset,
     j: &mut usize,
     i: usize,
     corresponding: &mut usize,
 ) {
     *j += 1;
-    while *j < other.len() && other[*j] {
+    while *j < other.len() && other.get(*j) {
         *corresponding = i;
         *j += 1;
     }
@@ -174,26 +179,26 @@ fn step_forward_other_unchanged(
 
 /// Returns true if the element immediately preceding `j` in the other sequence is changed.
 #[inline]
-fn is_corresponding(other: &[bool], j: usize) -> bool {
-    j > 0 && j - 1 < other.len() && other[j - 1]
+fn is_corresponding(other: &Bitset, j: usize) -> bool {
+    j > 0 && j - 1 < other.len() && other.get(j - 1)
 }
 
 /// Reconstructs coalesced hunks by scanning backward from the ends of both sequences.
-fn reconstruct_hunks(changed_a: &[bool], changed_b: &[bool], capacity_hint: usize) -> EditScript {
+fn reconstruct_hunks(changed_a: &Bitset, changed_b: &Bitset, capacity_hint: usize) -> EditScript {
     let mut hunks = Vec::with_capacity(capacity_hint);
     let mut i = changed_a.len();
     let mut j = changed_b.len();
 
     while i > 0 || j > 0 {
-        if (i > 0 && changed_a[i - 1]) || (j > 0 && changed_b[j - 1]) {
+        if (i > 0 && changed_a.get(i - 1)) || (j > 0 && changed_b.get(j - 1)) {
             let old_end = i;
-            while i > 0 && changed_a[i - 1] {
+            while i > 0 && changed_a.get(i - 1) {
                 i -= 1;
             }
             let old_start = i;
 
             let new_end = j;
-            while j > 0 && changed_b[j - 1] {
+            while j > 0 && changed_b.get(j - 1) {
                 j -= 1;
             }
             let new_start = j;
