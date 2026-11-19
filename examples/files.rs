@@ -25,8 +25,8 @@ fn main() {
     let old: Vec<&[u8]> = old_bytes.split_inclusive(|&b| b == b'\n').collect();
     let new: Vec<&[u8]> = new_bytes.split_inclusive(|&b| b == b'\n').collect();
 
-    // T is &[u8] (zero-copy line diff over raw byte slices)
-    let diff = ses::diff_slices(&old, &new);
+    // T is &[u8] (zero-copy line diff over raw byte slices with token interning)
+    let diff = ses::diff_lines(&old, &new);
 
     println!("--- Item-by-item changes (Change) ---");
     for change in diff.iter_changes() {
