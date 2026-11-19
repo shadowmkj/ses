@@ -238,26 +238,30 @@ pub type LineDiff<'a> = Diff<'a, &'a str>;
 /// Convenience type alias for raw byte-line diffs (for non-UTF8 binary files).
 pub type ByteLineDiff<'a> = Diff<'a, &'a [u8]>;
 
-/// Computes a line-by-line diff across pre-split slices of string lines using token interning.
+/// Computes a line-by-line diff across pre-split slices of lines using token interning.
 ///
-/// This function is optimized for text comparison. Before running Myers' algorithm, it interns
-/// all unique string lines in `old` and `new` into `u32` token IDs using a collision-free hash map.
-/// This transforms costly string equality checks during graph exploration into single-CPU-cycle
-/// integer comparisons (`u32 == u32`).
+/// This function is optimized for text and raw byte comparison. Before running Myers' algorithm,
+/// it interns all unique lines in `old` and `new` into `u32` token IDs using a collision-free
+/// hash map. This transforms costly string/byte equality checks during graph exploration into
+/// single-CPU-cycle integer comparisons (`u32 == u32`).
 ///
 /// Edits are automatically post-processed through boundary shifting to
 /// produce intuitive hunk boundaries that match GNU diff output.
 ///
 /// # Arguments
 ///
-/// * `old` - A slice of line string slices from the original text (e.g. from `split_inclusive('\n')` or `lines()`).
-/// * `new` - A slice of line string slices from the modified text.
+/// * `old` - A slice of line references from the original content (e.g. `&[&str]` or `&[&[u8]]`).
+/// * `new` - A slice of line references from the modified content.
 ///
 /// # Returns
 ///
-/// A [`LineDiff<'a>`] (alias for `Diff<'a, &'a str>`).
+/// A [`Diff<'a, T>`] container holding borrowed references to `old` and `new` alongside the computed
+/// [`EditScript`]. When called with `&[&str]`, returns [`LineDiff<'a>`]; when called with `&[&[u8]]`, returns
+/// [`ByteLineDiff<'a>`].
 ///
 /// # Examples
+///
+/// Line diffing UTF-8 strings:
 ///
 /// ```rust
 /// use ses::diff_lines;
@@ -273,7 +277,22 @@ pub type ByteLineDiff<'a> = Diff<'a, &'a [u8]>;
 /// assert_eq!(diff.hunks()[0].old_range(), 1..2);
 /// assert_eq!(diff.hunks()[0].new_range(), 1..2);
 /// ```
-pub fn diff_lines<'a>(old: &'a [&'a str], new: &'a [&'a str]) -> LineDiff<'a> {
+///
+/// Line diffing raw byte lines (e.g. for non-UTF8 or binary files):
+///
+/// ```rust
+/// use ses::diff_lines;
+///
+/// let old_lines: Vec<&[u8]> = vec![b"line 1\n", b"line 2\n"];
+/// let new_lines: Vec<&[u8]> = vec![b"line 1\n", b"line 2 modified\n"];
+///
+/// let diff = diff_lines(&old_lines, &new_lines);
+/// assert_eq!(diff.len(), 1);
+/// ```
+pub fn diff_lines<'a, T>(old: &'a [T], new: &'a [T]) -> Diff<'a, T>
+where
+    T: AsRef<[u8]> + PartialEq,
+{
     let trimmed = optimize::trim::trim_slices(old, new, |x, y| x == y);
 
     if trimmed.slice_a.is_empty() && trimmed.slice_b.is_empty() {
@@ -330,6 +349,17 @@ mod tests {
     fn test_diff_lines() {
         let old = ["line 1", "line 2", "line 3"];
         let new = ["line 1", "line 2 modified", "line 3"];
+        let diff = diff_lines(&old, &new);
+
+        assert_eq!(diff.script().len(), 1);
+        assert_eq!(diff.old(), &old);
+        assert_eq!(diff.new(), &new);
+    }
+
+    #[test]
+    fn test_diff_byte_lines() {
+        let old: [&[u8]; 3] = [b"line 1\n", b"line 2\n", b"line 3\n"];
+        let new: [&[u8]; 3] = [b"line 1\n", b"line 2 modified\n", b"line 3\n"];
         let diff = diff_lines(&old, &new);
 
         assert_eq!(diff.script().len(), 1);
