@@ -47,8 +47,26 @@ impl<'a, T> Clone for Change<'a, T> {
 
 impl<'a, T> Copy for Change<'a, T> {}
 
-/// A zero-copy lazy iterator yielding `Change<&T>` items on-the-fly.
-/// Uses an iterative loop state machine (never recursing) to prevent stack overflows.
+/// A zero-copy lazy iterator yielding [`Change`] items on-the-fly.
+///
+/// Constructed via [`Diff::iter_changes`](crate::Diff::iter_changes).
+///
+/// Uses an iterative loop state machine (never recursing) to prevent stack overflows
+/// even on massive diffs.
+///
+/// # Examples
+///
+/// ```rust
+/// use ses::{diff_slices, Change};
+///
+/// let diff = diff_slices(&["a", "b"], &["b", "c"]);
+/// let mut iter = diff.iter_changes();
+///
+/// assert_eq!(iter.next(), Some(Change::Delete(&"a")));
+/// assert_eq!(iter.next(), Some(Change::Equal(&"b", &"b")));
+/// assert_eq!(iter.next(), Some(Change::Insert(&"c")));
+/// assert_eq!(iter.next(), None);
+/// ```
 pub struct ChangesIter<'s, 'a, T> {
     old: &'a [T],
     new: &'a [T],
@@ -60,6 +78,7 @@ pub struct ChangesIter<'s, 'a, T> {
 }
 
 impl<'s, 'a, T> ChangesIter<'s, 'a, T> {
+    /// Creates a new `ChangesIter` over the provided script and sequences.
     pub fn new(script: &'s EditScript, old: &'a [T], new: &'a [T]) -> Self {
         Self {
             old,

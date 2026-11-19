@@ -1,10 +1,35 @@
 use crate::edit::EditScript;
 
 /// Represents a contiguous sub-slice of changes (grouping sequential tokens).
+///
+/// Unlike [`Change`](crate::views::change::Change), which yields elements one by one,
+/// `DiffChunk` groups adjacent elements of the same kind into contiguous slices (`&'a [T]`).
+/// This enables high-performance block-level rendering and formatted output.
+///
+/// # Examples
+///
+/// ```rust
+/// use ses::{diff_slices, DiffChunk};
+///
+/// let old = ["a", "b", "c"];
+/// let new = ["a", "x", "y", "c"];
+/// let diff = diff_slices(&old, &new);
+///
+/// for chunk in diff.iter_chunks() {
+///     match chunk {
+///         DiffChunk::Equal(slice) => println!("  {slice:?}"),
+///         DiffChunk::Delete(slice) => println!("- {slice:?}"),
+///         DiffChunk::Insert(slice) => println!("+ {slice:?}"),
+///     }
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffChunk<'a, T> {
+    /// A contiguous slice of elements present and unchanged in both sequences.
     Equal(&'a [T]),
+    /// A contiguous slice of elements removed from the original sequence.
     Delete(&'a [T]),
+    /// A contiguous slice of elements added to the modified sequence.
     Insert(&'a [T]),
 }
 
@@ -16,7 +41,26 @@ enum ChunkStage {
     Done,
 }
 
-/// A zero-copy lazy iterator yielding contiguous `DiffChunk<'a, T>` slices.
+/// A zero-copy lazy iterator yielding contiguous [`DiffChunk<'a, T>`] slices.
+///
+/// Constructed via [`Diff::iter_chunks`](crate::Diff::iter_chunks).
+///
+/// Uses an iterative loop state machine (never recursing) to prevent stack overflows
+/// even on massive diffs.
+///
+/// # Examples
+///
+/// ```rust
+/// use ses::{diff_slices, DiffChunk};
+///
+/// let diff = diff_slices(&["a", "b"], &["b", "c"]);
+/// let mut iter = diff.iter_chunks();
+///
+/// assert_eq!(iter.next(), Some(DiffChunk::Delete(&["a"][..])));
+/// assert_eq!(iter.next(), Some(DiffChunk::Equal(&["b"][..])));
+/// assert_eq!(iter.next(), Some(DiffChunk::Insert(&["c"][..])));
+/// assert_eq!(iter.next(), None);
+/// ```
 pub struct ChunksIter<'s, 'a, T> {
     old: &'a [T],
     new: &'a [T],
@@ -27,6 +71,7 @@ pub struct ChunksIter<'s, 'a, T> {
 }
 
 impl<'s, 'a, T> ChunksIter<'s, 'a, T> {
+    /// Creates a new `ChunksIter` over the provided script and sequences.
     pub fn new(script: &'s EditScript, old: &'a [T], new: &'a [T]) -> Self {
         Self {
             old,

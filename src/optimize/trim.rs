@@ -7,7 +7,7 @@ pub(crate) struct Trimmed<'a, T> {
     pub slice_b: &'a [T],
 }
 
-/// Strips common prefix and suffix elements in $O(N)$ time before running the Myers engine.
+/// Strips common prefix and suffix elements in `O(N)` time before running the Myers engine.
 pub(crate) fn trim_slices<'a, T, F>(a: &'a [T], b: &'a [T], mut equals: F) -> Trimmed<'a, T>
 where
     F: FnMut(&T, &T) -> bool,

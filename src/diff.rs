@@ -1,6 +1,29 @@
 use crate::edit::{EditScript, Hunk};
 
-/// The universal container pairing an `EditScript` with original borrowed inputs.
+/// The primary diff container pairing a computed [`EditScript`] with borrowed sequences.
+///
+/// A `Diff` holds:
+/// - `script`: The sequence of modification ranges ([`Hunk`]).
+/// - `old`: Borrowed reference to the original sequence A.
+/// - `new`: Borrowed reference to the modified sequence B.
+///
+/// Because `Diff` retains borrowed references to both sequences, it enables zero-copy
+/// streaming iteration via [`iter_changes`](Diff::iter_changes) and [`iter_chunks`](Diff::iter_chunks)
+/// without cloning elements.
+///
+/// You can also iterate over hunks by borrowing `&diff`:
+///
+/// ```rust
+/// use ses::diff_slices;
+///
+/// let old = [1, 2, 3];
+/// let new = [1, 9, 3];
+/// let diff = diff_slices(&old, &new);
+///
+/// for hunk in &diff {
+///     println!("Change: {:?}", hunk);
+/// }
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Diff<'a, T> {
     pub(crate) script: EditScript,
@@ -65,19 +88,52 @@ impl<'a, T> Diff<'a, T> {
         (old_len - prev_old_end) == (new_len - prev_new_end)
     }
 
-    /// Borrows the computed edit script.
+    /// Borrows the computed edit script containing all modified hunks.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let diff = diff_slices(&[1, 2], &[1, 3]);
+    /// assert_eq!(diff.script().len(), 1);
+    /// ```
     #[inline]
     pub fn script(&self) -> &EditScript {
         &self.script
     }
 
-    /// Borrows the original sequence A.
+    /// Borrows the original source sequence A.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let a = ["alpha", "beta"];
+    /// let b = ["beta", "gamma"];
+    /// let diff = diff_slices(&a, &b);
+    /// assert_eq!(diff.old(), &a[..]);
+    /// ```
     #[inline]
     pub fn old(&self) -> &'a [T] {
         self.old
     }
 
-    /// Borrows the target sequence B.
+    /// Borrows the modified target sequence B.
+    ///
+    /// See also [`Diff::new_slice`].
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let a = ["alpha", "beta"];
+    /// let b = ["beta", "gamma"];
+    /// let diff = diff_slices(&a, &b);
+    /// assert_eq!(diff.new(), &b[..]);
+    /// ```
     #[allow(clippy::new_ret_no_self)]
     #[inline]
     pub fn new(&self) -> &'a [T] {
@@ -85,35 +141,114 @@ impl<'a, T> Diff<'a, T> {
     }
 
     /// Alias for [`Diff::new`], borrowing the target sequence B.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let a = ["alpha", "beta"];
+    /// let b = ["beta", "gamma"];
+    /// let diff = diff_slices(&a, &b);
+    /// assert_eq!(diff.new_slice(), &b[..]);
+    /// ```
     #[inline]
     pub fn new_slice(&self) -> &'a [T] {
         self.new
     }
 
-    /// Borrows the slice of computed edit hunks.
+    /// Borrows the slice of computed edit [`Hunk`]s.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let diff = diff_slices(&[1, 2, 3], &[1, 9, 3]);
+    /// let hunks = diff.hunks();
+    /// assert_eq!(hunks.len(), 1);
+    /// assert_eq!(hunks[0].old_range(), 1..2);
+    /// assert_eq!(hunks[0].new_range(), 1..2);
+    /// ```
     #[inline]
     pub fn hunks(&self) -> &[Hunk] {
         self.script.hunks()
     }
 
     /// Returns `true` if the diff contains no changes (both sequences are identical).
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let diff = diff_slices(&[1, 2], &[1, 2]);
+    /// assert!(diff.is_empty());
+    ///
+    /// let diff2 = diff_slices(&[1, 2], &[1, 3]);
+    /// assert!(!diff2.is_empty());
+    /// ```
     #[inline]
     pub fn is_empty(&self) -> bool {
         self.script.is_empty()
     }
 
     /// Returns the number of edit hunks.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let diff = diff_slices(&[1, 2, 3], &[1, 9, 3]);
+    /// assert_eq!(diff.len(), 1);
+    /// ```
     #[inline]
     pub fn len(&self) -> usize {
         self.script.len()
     }
 
-    /// Iterates lazily over individual token changes (Equal, Delete, Insert).
+    /// Lazily iterates over individual token changes ([`Change`](crate::Change): `Equal`, `Delete`, `Insert`).
+    ///
+    /// This iterator walks both sequences on-the-fly without allocating memory.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::{diff_slices, Change};
+    ///
+    /// let diff = diff_slices(&["a", "b"], &["b", "c"]);
+    /// for change in diff.iter_changes() {
+    ///     match change {
+    ///         Change::Equal(old, _new) => println!("  {old}"),
+    ///         Change::Delete(item) => println!("- {item}"),
+    ///         Change::Insert(item) => println!("+ {item}"),
+    ///     }
+    /// }
+    /// ```
     pub fn iter_changes<'s>(&'s self) -> crate::views::change::ChangesIter<'s, 'a, T> {
         crate::views::change::ChangesIter::new(&self.script, self.old, self.new)
     }
 
-    /// Iterates lazily over contiguous chunk slices (Equal, Delete, Insert).
+    /// Lazily iterates over contiguous chunk slices ([`DiffChunk`](crate::DiffChunk): `Equal`, `Delete`, `Insert`).
+    ///
+    /// Grouping consecutive items into slices provides higher throughput when rendering
+    /// or formatting large diff blocks.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::{diff_slices, DiffChunk};
+    ///
+    /// let diff = diff_slices(&[1, 2, 3], &[1, 9, 9, 3]);
+    /// for chunk in diff.iter_chunks() {
+    ///     match chunk {
+    ///         DiffChunk::Equal(s) => println!("Unchanged: {s:?}"),
+    ///         DiffChunk::Delete(s) => println!("Removed:   {s:?}"),
+    ///         DiffChunk::Insert(s) => println!("Added:     {s:?}"),
+    ///     }
+    /// }
+    /// ```
     pub fn iter_chunks<'s>(&'s self) -> crate::views::chunk::ChunksIter<'s, 'a, T> {
         crate::views::chunk::ChunksIter::new(&self.script, self.old, self.new)
     }
@@ -123,6 +258,18 @@ impl<'s, 'a, T> IntoIterator for &'s Diff<'a, T> {
     type Item = &'s Hunk;
     type IntoIter = std::slice::Iter<'s, Hunk>;
 
+    /// Enables direct reference iteration over the diff hunks via `for hunk in &diff`.
+    ///
+    /// # Examples
+    ///
+    /// ```rust
+    /// use ses::diff_slices;
+    ///
+    /// let diff = diff_slices(&[1, 2], &[1, 3]);
+    /// for hunk in &diff {
+    ///     assert_eq!(hunk.old_range(), 1..2);
+    /// }
+    /// ```
     #[inline]
     fn into_iter(self) -> Self::IntoIter {
         self.hunks().iter()
