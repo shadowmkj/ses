@@ -40,7 +40,7 @@ fn main() {
     println!("\n--- Contiguous chunk slices (DiffChunk) ---");
     for chunk in diff.iter_chunks() {
         match chunk {
-            DiffChunk::Equal(lines) => {
+            DiffChunk::Equal(lines, _new_lines) => {
                 for line in lines {
                     print!("  {}", String::from_utf8_lossy(line));
                 }

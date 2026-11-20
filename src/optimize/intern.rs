@@ -119,7 +119,7 @@ mod tests {
     #[test]
     fn test_interner_long_byte_lines() {
         let mut interner = TokenInterner::with_capacity(4);
-        let mut long1 = vec![b'x'; 2000];
+        let long1 = vec![b'x'; 2000];
         let mut long2 = vec![b'x'; 2000];
         long2[1999] = b'y'; // differs at byte 1999
 

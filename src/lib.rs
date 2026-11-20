@@ -41,7 +41,7 @@
 //! // Stream contiguous chunk slices
 //! for chunk in diff.iter_chunks() {
 //!     match chunk {
-//!         DiffChunk::Equal(slice) => println!("Keep: {slice:?}"),
+//!         DiffChunk::Equal(old_slice, _new_slice) => println!("Keep: {old_slice:?}"),
 //!         DiffChunk::Delete(slice) => println!("Del:  {slice:?}"),
 //!         DiffChunk::Insert(slice) => println!("Ins:  {slice:?}"),
 //!     }
@@ -222,7 +222,7 @@ where
 ///
 /// for chunk in diff.iter_chunks() {
 ///     match chunk {
-///         DiffChunk::Equal(slice) => println!("Unchanged: {slice:?}"),
+///         DiffChunk::Equal(old_slice, _new_slice) => println!("Unchanged: {old_slice:?}"),
 ///         DiffChunk::Delete(slice) => println!("Removed:   {slice:?}"),
 ///         DiffChunk::Insert(slice) => println!("Added:     {slice:?}"),
 ///     }

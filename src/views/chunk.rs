@@ -17,7 +17,7 @@ use crate::edit::EditScript;
 ///
 /// for chunk in diff.iter_chunks() {
 ///     match chunk {
-///         DiffChunk::Equal(slice) => println!("  {slice:?}"),
+///         DiffChunk::Equal(old_slice, _new_slice) => println!("  {old_slice:?}"),
 ///         DiffChunk::Delete(slice) => println!("- {slice:?}"),
 ///         DiffChunk::Insert(slice) => println!("+ {slice:?}"),
 ///     }
@@ -25,12 +25,38 @@ use crate::edit::EditScript;
 /// ```
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DiffChunk<'a, T> {
-    /// A contiguous slice of elements present and unchanged in both sequences.
-    Equal(&'a [T]),
+    /// A contiguous slice of elements present and unchanged in both sequences (`old`, `new`).
+    Equal(&'a [T], &'a [T]),
     /// A contiguous slice of elements removed from the original sequence.
     Delete(&'a [T]),
     /// A contiguous slice of elements added to the modified sequence.
     Insert(&'a [T]),
+}
+
+impl<'a, T> DiffChunk<'a, T> {
+    /// Returns the slice from the original sequence A (`old`), if applicable.
+    ///
+    /// For `DiffChunk::Insert`, returns an empty slice.
+    #[inline]
+    pub fn old_slice(&self) -> &'a [T] {
+        match self {
+            DiffChunk::Equal(old, _) => old,
+            DiffChunk::Delete(old) => old,
+            DiffChunk::Insert(_) => &[],
+        }
+    }
+
+    /// Returns the slice from the modified sequence B (`new`), if applicable.
+    ///
+    /// For `DiffChunk::Delete`, returns an empty slice.
+    #[inline]
+    pub fn new_slice(&self) -> &'a [T] {
+        match self {
+            DiffChunk::Equal(_, new) => new,
+            DiffChunk::Insert(new) => new,
+            DiffChunk::Delete(_) => &[],
+        }
+    }
 }
 
 enum ChunkStage {
@@ -57,7 +83,7 @@ enum ChunkStage {
 /// let mut iter = diff.iter_chunks();
 ///
 /// assert_eq!(iter.next(), Some(DiffChunk::Delete(&["a"][..])));
-/// assert_eq!(iter.next(), Some(DiffChunk::Equal(&["b"][..])));
+/// assert_eq!(iter.next(), Some(DiffChunk::Equal(&["b"][..], &["b"][..])));
 /// assert_eq!(iter.next(), Some(DiffChunk::Insert(&["c"][..])));
 /// assert_eq!(iter.next(), None);
 /// ```
@@ -67,6 +93,7 @@ pub struct ChunksIter<'s, 'a, T> {
     script: &'s EditScript,
     hunk_idx: usize,
     old_cursor: usize,
+    new_cursor: usize,
     stage: ChunkStage,
 }
 
@@ -79,6 +106,7 @@ impl<'s, 'a, T> ChunksIter<'s, 'a, T> {
             script,
             hunk_idx: 0,
             old_cursor: 0,
+            new_cursor: 0,
             stage: ChunkStage::BeforeHunk,
         }
     }
@@ -96,11 +124,14 @@ impl<'s, 'a, T> Iterator for ChunksIter<'s, 'a, T> {
                     if self.hunk_idx < hunks.len() {
                         let hunk = &hunks[self.hunk_idx];
                         let old_r = hunk.old_range();
+                        let new_r = hunk.new_range();
                         if self.old_cursor < old_r.start {
-                            let slice = &self.old[self.old_cursor..old_r.start];
+                            let old_slice = &self.old[self.old_cursor..old_r.start];
+                            let new_slice = &self.new[self.new_cursor..new_r.start];
                             self.old_cursor = old_r.start;
+                            self.new_cursor = new_r.start;
                             self.stage = ChunkStage::DeleteHunk;
-                            return Some(DiffChunk::Equal(slice));
+                            return Some(DiffChunk::Equal(old_slice, new_slice));
                         }
                         self.stage = ChunkStage::DeleteHunk;
                     } else {
@@ -122,15 +153,18 @@ impl<'s, 'a, T> Iterator for ChunksIter<'s, 'a, T> {
                     self.stage = ChunkStage::BeforeHunk;
                     if !hunk.is_deletion() {
                         let slice = &self.new[hunk.new_range()];
+                        self.new_cursor = hunk.new_range().end;
                         return Some(DiffChunk::Insert(slice));
                     }
                 }
                 ChunkStage::AfterHunks => {
                     self.stage = ChunkStage::Done;
                     if self.old_cursor < self.old.len() {
-                        let slice = &self.old[self.old_cursor..];
+                        let old_slice = &self.old[self.old_cursor..];
+                        let new_slice = &self.new[self.new_cursor..];
                         self.old_cursor = self.old.len();
-                        return Some(DiffChunk::Equal(slice));
+                        self.new_cursor = self.new.len();
+                        return Some(DiffChunk::Equal(old_slice, new_slice));
                     }
                 }
                 ChunkStage::Done => return None,
@@ -154,10 +188,10 @@ mod tests {
         assert_eq!(
             chunks,
             vec![
-                DiffChunk::Equal(&["a"][..]),
+                DiffChunk::Equal(&["a"][..], &["a"][..]),
                 DiffChunk::Delete(&["b", "c"][..]),
                 DiffChunk::Insert(&["x", "y"][..]),
-                DiffChunk::Equal(&["d"][..]),
+                DiffChunk::Equal(&["d"][..], &["d"][..]),
             ]
         );
     }
@@ -195,6 +229,42 @@ mod tests {
         let b = ["x", "y"];
         let diff = diff_slices(&a, &b);
         let chunks: Vec<_> = diff.iter_chunks().collect();
-        assert_eq!(chunks, vec![DiffChunk::Equal(&["x", "y"][..])]);
+        assert_eq!(
+            chunks,
+            vec![DiffChunk::Equal(&["x", "y"][..], &["x", "y"][..])]
+        );
+    }
+
+    #[test]
+    fn test_iter_chunks_custom_equality_preserves_both() {
+        let a = ["HELLO", "world"];
+        let b = ["hello", "WORLD"];
+        let diff = crate::diff_slices_by(&a, &b, |x, y| x.eq_ignore_ascii_case(y));
+
+        let chunks: Vec<_> = diff.iter_chunks().collect();
+        assert_eq!(
+            chunks,
+            vec![DiffChunk::Equal(
+                &["HELLO", "world"][..],
+                &["hello", "WORLD"][..]
+            ),]
+        );
+        assert_eq!(chunks[0].old_slice(), &["HELLO", "world"][..]);
+        assert_eq!(chunks[0].new_slice(), &["hello", "WORLD"][..]);
+    }
+
+    #[test]
+    fn test_diff_chunk_slice_accessors() {
+        let equal: DiffChunk<&str> = DiffChunk::Equal(&["a"], &["b"]);
+        assert_eq!(equal.old_slice(), &["a"]);
+        assert_eq!(equal.new_slice(), &["b"]);
+
+        let delete: DiffChunk<&str> = DiffChunk::Delete(&["del"]);
+        assert_eq!(delete.old_slice(), &["del"]);
+        assert!(delete.new_slice().is_empty());
+
+        let insert: DiffChunk<&str> = DiffChunk::Insert(&["ins"]);
+        assert!(insert.old_slice().is_empty());
+        assert_eq!(insert.new_slice(), &["ins"]);
     }
 }

@@ -243,7 +243,7 @@ impl<'a, T> Diff<'a, T> {
     /// let diff = diff_slices(&[1, 2, 3], &[1, 9, 9, 3]);
     /// for chunk in diff.iter_chunks() {
     ///     match chunk {
-    ///         DiffChunk::Equal(s) => println!("Unchanged: {s:?}"),
+    ///         DiffChunk::Equal(old_s, _new_s) => println!("Unchanged: {old_s:?}"),
     ///         DiffChunk::Delete(s) => println!("Removed:   {s:?}"),
     ///         DiffChunk::Insert(s) => println!("Added:     {s:?}"),
     ///     }

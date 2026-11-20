@@ -93,7 +93,7 @@ fn main() {
 
     for chunk in diff.iter_chunks() {
         match chunk {
-            DiffChunk::Equal(slice) => println!("Unchanged: {:?}", slice),
+            DiffChunk::Equal(old_slice, _new_slice) => println!("Unchanged: {:?}", old_slice),
             DiffChunk::Delete(slice) => println!("Deleted: {:?}", slice),
             DiffChunk::Insert(slice) => println!("Inserted: {:?}", slice),
         }
