@@ -128,10 +128,16 @@ mod tests {
 
     #[test]
     fn test_bitset_set_range() {
-        let mut bs = Bitset::new(100);
-        bs.set_range(5..10);
+        let mut bs = Bitset::new(200);
 
-        for i in 0..100 {
+        // Empty range does nothing
+        bs.set_range(10..10);
+        assert!(!bs.get(10));
+        bs.set_range(0..0);
+
+        // Range within single word
+        bs.set_range(5..10);
+        for i in 0..200 {
             assert_eq!(bs.get(i), (5..10).contains(&i));
         }
 
@@ -145,6 +151,19 @@ mod tests {
         }
         assert!(!bs.get(59));
         assert!(!bs.get(70));
+
+        // Exact single word (64..128)
+        bs.set_range(64..128);
+        for i in 64..128 {
+            assert!(bs.get(i));
+        }
+
+        // Spanning across multiple words (10..150)
+        let mut bs2 = Bitset::new(200);
+        bs2.set_range(10..150);
+        for i in 0..200 {
+            assert_eq!(bs2.get(i), (10..150).contains(&i));
+        }
     }
 
     #[test]

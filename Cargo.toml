@@ -3,12 +3,22 @@ name = "ses"
 version = "0.0.4"
 authors = ["Milan Pramod"]
 description = "A high-performance, zero-dependency, linear-space Myers diff engine in Rust."
-license = "MIT or Apache-2.0"
+license = "MIT OR Apache-2.0"
 repository = "https://github.com/shadowmkj/ses"
 readme = "README.md"
 edition = "2024"
 keywords = ["diff", "myers", "shortest-edit-script", "diffutils", "zero-copy"]
 categories = ["algorithms", "development-tools", "text-processing"]
+rust-version = "1.85"
+include = [
+    "/src/**/*",
+    "/tests/**/*",
+    "/benches/**/*",
+    "/examples/**/*",
+    "/Cargo.toml",
+    "/README.md",
+    "/LICENSE-*",
+]
 
 [dependencies]
 rustc-hash = "2.1.3"
