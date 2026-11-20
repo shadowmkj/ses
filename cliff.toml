@@ -10,19 +10,21 @@ body = """
 {% else %}\
     ## [unreleased](https://github.com/shadowmkj/ses)
 {% endif %}\
-{% for commit in commits %}\
-    {% if commit.breaking %}\
-        {% if loop.first %}
+{% if commits | filter(attribute="breaking", value=true) | length > 0 %}
 ### 💥 Breaking Changes
-        {% endif %}\
-        - {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }} - ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/shadowmkj/ses/commit/{{ commit.id }}))\
-        {% if commit.remote.username %} (from [`@{{ commit.remote.username }}`](https://github.com/{{ commit.remote.username }})){% elif commit.author.name %} (by {{ commit.author.name }}){% endif %}
-    {% endif %}\
-{% endfor %}\
+{% for commit in commits | filter(attribute="breaking", value=true) %}
+    - {% if commit.scope %}*({{ commit.scope }})* {% endif %}{{ commit.message | upper_first }} - ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/shadowmkj/ses/commit/{{ commit.id }}))\
+        {% if commit.remote.username %} (from [`@{{ commit.remote.username }}`](https://github.com/{{ commit.remote.username }})){% elif commit.author.name %} (by {{ commit.author.name }}){% endif %}\
+        {% if commit.breaking_description and commit.breaking_description != commit.message %}
+      > ⚠️ **BREAKING CHANGE**: {{ commit.breaking_description | trim }}\
+        {% endif %}
+{% endfor %}
+{% endif %}\
 {% for group, commits in commits | group_by(attribute="group") %}
     ### {{ group | striptags | trim | upper_first }}
     {% for commit in commits %}
         - {% if commit.scope %}*({{ commit.scope }})* {% endif %}\
+            {% if commit.breaking %}[**breaking**] {% endif %}\
             {{ commit.message | upper_first }} - ([{{ commit.id | truncate(length=7, end="") }}](https://github.com/shadowmkj/ses/commit/{{ commit.id }}))\
             {% if commit.remote.username %} (from [`@{{ commit.remote.username }}`](https://github.com/{{ commit.remote.username }})){% elif commit.author.name %} (by {{ commit.author.name }}){% endif %}\
     {% endfor %}
@@ -58,7 +60,7 @@ commit_preprocessors = [
   { pattern = '\(#([0-9]+)\)', replace = "([#${1}](https://github.com/shadowmkj/ses/pull/${1}))" },
 ]
 # Prevent commits that are breaking from being excluded by commit parsers.
-protect_breaking_commits = false
+protect_breaking_commits = true
 # An array of regex based parsers for extracting data from the commit message.
 # Assigns commits to groups.
 # Optionally sets the commit's scope and can decide to exclude commits from further processing.
@@ -66,12 +68,14 @@ commit_parsers = [
   { message = "^feat", group = "<!-- 0 -->🚀 Features" },
   { message = "^fix", group = "<!-- 1 -->🐛 Bug Fixes" },
   { message = "^perf", group = "<!-- 2 -->⚡️ Performance" },
-  { message = "^ci|^chore\\(ci\\)|^fix\\(ci\\)", group = "<!-- 3 -->👷 CI" },
+  { message = "^refactor", group = "<!-- 3 -->🚜 Refactor" },
+  { message = "^doc", group = "<!-- 4 -->📚 Documentation" },
+  { message = "^ci|^chore\\(ci\\)|^fix\\(ci\\)", group = "<!-- 7 -->👷 CI" },
   { message = "^chore\\(release\\): prepare for", skip = true },
   { message = "^chore\\(deps.*\\)", skip = true },
   { message = "^chore\\(pr\\)", skip = true },
   { message = "^chore\\(pull\\)", skip = true },
-  { message = ".*", group = "<!-- 4 -->⚙️ Misc" },
+  { message = ".*", group = "<!-- 8 -->⚙️ Misc" },
 ]
 # Exclude commits that are not matched by any commit parser.
 filter_commits = false
@@ -94,3 +98,8 @@ recurse_submodules = false
 [remote.github]
 owner = "shadowmkj"
 repo = "ses"
+
+[bump]
+features_always_bump_minor = false
+breaking_always_bump_major = false
+

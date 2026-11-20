@@ -1,6 +1,6 @@
 [package]
 name = "ses"
-version = "0.0.4"
+version = "0.0.5"
 authors = ["Milan Pramod"]
 description = "A high-performance, zero-dependency, linear-space Myers diff engine in Rust."
 license = "MIT OR Apache-2.0"

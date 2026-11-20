@@ -1,3 +1,17 @@
+## [v0.0.5](https://github.com/shadowmkj/ses/releases/tag/v0.0.5) - 2026-11-20
+
+### 💥 Breaking Changes
+
+- *(views)* Support separate old and new slices for Equal diff chunks - ([8f11e6d](https://github.com/shadowmkj/ses/commit/8f11e6de3ea08f994f3cfc821101e4df0b10dc6f)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+
+### 🚀 Features
+
+- *(views)* [**breaking**] Support separate old and new slices for Equal diff chunks - ([8f11e6d](https://github.com/shadowmkj/ses/commit/8f11e6de3ea08f994f3cfc821101e4df0b10dc6f)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### ⚙️ Misc
+
+- Add more tests for bitset and interner modules - ([d8dbdb3](https://github.com/shadowmkj/ses/commit/d8dbdb3c520479eddabd90e8df086a88ed1eb8d4)) (from [`@shadowmkj`](https://github.com/shadowmkj))
 ## [v0.0.4](https://github.com/shadowmkj/ses/releases/tag/v0.0.4) - 2026-11-19
 
 ### 🚀 Features
