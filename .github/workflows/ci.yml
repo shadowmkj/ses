@@ -43,8 +43,10 @@ jobs:
       - name: Install GNU diffutils (Linux)
         if: runner.os == 'Linux'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y diffutils
+          if ! diff --version 2>/dev/null | grep -q 'GNU diffutils'; then
+            sudo apt-get update
+            sudo apt-get install -y diffutils
+          fi
 
       - name: Install GNU diffutils (macOS)
         if: runner.os == 'macOS'
