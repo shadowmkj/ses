@@ -1,3 +1,12 @@
+## [v0.0.6](https://github.com/shadowmkj/ses/releases/tag/v0.0.6) - 2026-11-27
+
+### 🚀 Features
+
+- *(fxhasher)* Replace external rustc-hash dependency with custom FxHasher - ([0a46f98](https://github.com/shadowmkj/ses/commit/0a46f984f16d2804477b47127deb6c91851a94eb)) (from [`@shadowmkj`](https://github.com/shadowmkj))
+
+### 👷 CI
+
+- Skip diffutils installation if already installed - ([29ad83d](https://github.com/shadowmkj/ses/commit/29ad83dde6f442b74848389356622e715fe73c62)) (from [`@shadowmkj`](https://github.com/shadowmkj))
 ## [v0.0.5](https://github.com/shadowmkj/ses/releases/tag/v0.0.5) - 2026-11-20
 
 ### 💥 Breaking Changes
