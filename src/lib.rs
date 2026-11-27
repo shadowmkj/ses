@@ -299,7 +299,10 @@ where
         return Diff::from_parts(EditScript::default(), old, new);
     }
 
-    let mut interner = optimize::intern::TokenInterner::with_capacity(old.len() + new.len());
+    let mut interner = optimize::intern::TokenInterner::with_capacity(
+        trimmed.slice_a.len() + trimmed.slice_b.len(),
+    );
+
     let old_tokens = interner.intern(trimmed.slice_a);
     let new_tokens = interner.intern(trimmed.slice_b);
 

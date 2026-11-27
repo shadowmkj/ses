@@ -1,4 +1,18 @@
-use rustc_hash::{FxBuildHasher, FxHashMap};
+use crate::optimize::fxhasher::{FxBuildHasher, FxHashMap};
+use core::hash::{Hash, Hasher};
+
+/// Internal key wrapper whose `Hash` implementation writes slice bytes directly,
+/// avoiding `std`'s extra `write_usize(len)` prefix call since [`crate::optimize::fxhash::FxHasher`]
+/// already mixes the slice length inside `hash_bytes`. This is just a small micro-optimization.
+#[derive(Eq, PartialEq)]
+struct LineKey<'a>(&'a [u8]);
+
+impl Hash for LineKey<'_> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        state.write(self.0);
+    }
+}
 
 /// Maps arbitrary byte sequences to unique `u32` token IDs.
 ///
@@ -6,7 +20,7 @@ use rustc_hash::{FxBuildHasher, FxHashMap};
 /// (such as source code lines), avoiding the latency of standard cryptographic hashing
 /// while guaranteeing sound equality checks without hash collisions.
 pub(crate) struct TokenInterner<'a> {
-    map: FxHashMap<&'a [u8], u32>,
+    map: FxHashMap<LineKey<'a>, u32>,
 }
 
 impl<'a> TokenInterner<'a> {
@@ -26,7 +40,8 @@ impl<'a> TokenInterner<'a> {
         for tok in tokens {
             let bytes: &'a [u8] = tok.as_ref();
             let next_id = self.map.len() as u32;
-            let id = *self.map.entry(bytes).or_insert(next_id);
+            let key = LineKey(bytes);
+            let id = *self.map.entry(key).or_insert(next_id);
             ids.push(id);
         }
         ids
@@ -129,5 +144,18 @@ mod tests {
         assert_eq!(ids.len(), 3);
         assert_eq!(ids[0], ids[2]);
         assert_ne!(ids[0], ids[1]);
+    }
+
+    #[test]
+    fn test_interner_trailing_nul_and_length_distinctness() {
+        let mut interner = TokenInterner::with_capacity(8);
+        let tokens: [&[u8]; 5] = [b"", b"\0", b"\0\0", b"line", b"line\0"];
+        let ids = interner.intern(&tokens);
+        assert_eq!(ids.len(), 5);
+        for i in 0..ids.len() {
+            for j in (i + 1)..ids.len() {
+                assert_ne!(ids[i], ids[j], "index {i} and {j} unexpectedly matched");
+            }
+        }
     }
 }
